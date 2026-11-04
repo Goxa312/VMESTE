@@ -63,9 +63,9 @@ export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRef
       <span className={extension.connected && reachable ? "done" : ""}>{extension.connected && reachable ? <Check size={15}/> : "2"} Киного</span>
       <span className={extension.hasPlayer && reachable ? "done" : ""}>{extension.hasPlayer && reachable ? <Check size={15}/> : "3"} Синхронизация</span>
     </div>
-    <p className="kinogo-status" role="status" aria-live="polite">{checking && !reachable ? "Проверяем связь с расширением…" : !reachable ? extension.installed ? "Связь с расширением прервалась" : "Расширение пока не подключилось к этому сайту" : updateRequired ? `Доступна новая версия ${EXTENSION_VERSION}` : extension.connected ? extension.hasPlayer ? "Плеер подключён · синхронизация включена" : extension.pageTimedOut ? "Киного пока не ответил" : extension.pageReady ? "Запустите фильм во вкладке Киного" : "Ждём загрузку Киного…" : `Расширение ${extension.version} готово`}</p>
+    <p className="kinogo-status" role="status" aria-live="polite">{checking && !reachable ? "Проверяем связь с расширением…" : !reachable ? extension.installed ? "Связь с расширением прервалась" : "Расширение пока не подключилось к этому сайту" : updateRequired ? `Доступна новая версия ${EXTENSION_VERSION}` : extension.connected ? extension.hasPlayer ? "Плеер подключён · синхронизация включена" : extension.recovering ? "Восстанавливаем загрузку Киного…" : extension.pageTimedOut ? "Киного пока не ответил" : extension.pageReady ? "Запустите фильм во вкладке Киного" : "Ждём загрузку Киного…" : `Расширение ${extension.version} готово`}</p>
     {reachable && !updateRequired ? <>
-      <button className="button primary" disabled={busy || !connected} onClick={() => void connect()}>{busy ? <Spinner/> : <ExternalLink size={17}/>} {extension.pageTimedOut ? "Повторить загрузку Киного" : extension.connected ? "К фильму" : "Смотреть на Киного"}</button>
+      <button className="button primary" disabled={busy || !connected || extension.recovering} onClick={() => void connect()}>{busy || extension.recovering ? <Spinner/> : <ExternalLink size={17}/>} {extension.recovering ? "Восстанавливаем Киного…" : extension.pageTimedOut ? "Повторить загрузку Киного" : extension.connected ? "К фильму" : "Смотреть на Киного"}</button>
       {!connected && <small>Восстанавливаем связь с комнатой…</small>}
       {extension.connected && <button className="text-button" onClick={() => void extensionRequest("disconnect").then(setExtension).catch(e => setError(e.message))}><Unplug size={15}/>Отключить просмотр</button>}
     </> : <div className="kinogo-actions">
@@ -74,6 +74,7 @@ export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRef
     </div>}
     {!reachable && !checking && <p className="kinogo-hint">Уже установлено? Откройте значок «Вместе» в Chrome и нажмите «Восстановить связь». Для старой копии из папки проекта нажмите ↻ на странице расширений.</p>}
     <details className="kinogo-help"><summary>Если что-то не подключается</summary>
+      <p>Если Киного остаётся пустым при повторном открытии, обновите расширение до {EXTENSION_VERSION}, откройте его значок и один раз включите «Автовосстановление Киного». При зависании оно сбросит данные только Киного и повторит загрузку. Возможен выход из аккаунта Киного.</p>
       <p>Обе вкладки должны быть в одном профиле Chrome или Edge. Для инкогнито нужно отдельно разрешить работу расширения. На другом компьютере расширение тоже нужно установить.</p>
       <p>Короткий ролик или другой плеер выберите кнопкой «Подключить это видео» после рекламы. У всех участников должны совпадать фильм и перевод.</p>
       <a className="text-button" href={room.videoUrl} target="_blank" rel="noreferrer">Открыть исходную страницу Киного <ExternalLink size={14}/></a>

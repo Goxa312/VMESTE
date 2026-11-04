@@ -5,6 +5,7 @@ const send = async (type, data = {}) => {
   return response;
 };
 const feedback = message => { byId('feedback').textContent = message; };
+let autoRecovery = false;
 async function action(type, data) {
   try { await send(type, data); if (type !== 'popup-disconnect') window.close(); else await refresh(); }
   catch (error) { feedback(error.message); }
@@ -12,6 +13,10 @@ async function action(type, data) {
 async function refresh() {
   try {
     const result = await send('popup-status');
+    autoRecovery = result.autoRecovery === true;
+    byId('auto-recovery').textContent = autoRecovery ? 'Автовосстановление включено · отключить' : 'Включить автовосстановление Киного';
+    byId('auto-recovery').setAttribute('aria-pressed', String(autoRecovery));
+    byId('recovery-status').textContent = autoRecovery ? 'Готово. При пустой странице восстановление выполняется автоматически; во время фильма оно не запускается.' : 'Включается один раз. Работает только для пустой страницы, пока фильм ещё не подключён.';
     byId('version').textContent = `v${result.version}`;
     byId('heading').textContent = result.rooms.length ? 'Просмотр подключён' : 'Расширение готово';
     byId('description').textContent = result.rooms.length ? 'К комнате и фильму можно вернуться одним нажатием.' : 'В комнате нажмите «Смотреть на Киного», затем запустите фильм. Длинное видео подключится автоматически.';
@@ -20,11 +25,16 @@ async function refresh() {
     for (const room of result.rooms) {
       const card = document.createElement('div'); card.className = 'room';
       const title = document.createElement('strong'); title.textContent = `Комната ${room.roomId}`;
-      const status = document.createElement('p'); status.textContent = room.error || (room.hasPlayer ? 'Плеер подключён · синхронизация включена' : room.pageReady ? 'Запустите фильм во вкладке Киного' : 'Ждём загрузку Киного');
+      const status = document.createElement('p'); status.textContent = room.recovering ? 'Восстанавливаем загрузку Киного…' : room.error || (room.hasPlayer ? 'Плеер подключён · синхронизация включена' : room.pageReady ? 'Запустите фильм во вкладке Киного' : 'Ждём загрузку Киного');
       const buttons = document.createElement('div'); buttons.className = 'actions';
       for (const [label, type] of [['К комнате', 'popup-room'], ['К фильму', 'popup-film'], ['Отключить', 'popup-disconnect']]) {
         const button = document.createElement('button'); button.textContent = label;
         button.addEventListener('click', () => void action(type, { roomTabId: room.roomTabId })); buttons.append(button);
+      }
+      if (room.pageTimedOut && !room.recovering) {
+        const retry = document.createElement('button'); retry.textContent = 'Повторить загрузку';
+        retry.addEventListener('click', () => void action('popup-retry', { roomTabId: room.roomTabId }));
+        buttons.append(retry);
       }
       card.append(title, status, buttons); byId('rooms').append(card);
     }
@@ -36,6 +46,21 @@ byId('repair').addEventListener('click', async () => {
   try {
     const result = await send('repair');
     feedback(result.repaired ? `Связь восстановлена в ${result.repaired} вкладках. Вернитесь в комнату.` : result.found ? 'Проверьте доступ расширения к этому сайту в настройках Chrome, затем повторите.' : 'Откройте сайт кнопкой выше, затем создайте комнату или войдите по приглашению.');
+    await refresh();
+  } catch (error) { feedback(error.message); }
+  finally { button.disabled = false; }
+});
+byId('auto-recovery').addEventListener('click', async () => {
+  const button = byId('auto-recovery'); button.disabled = true;
+  try {
+    const enabled = !autoRecovery;
+    // Request directly from this click, before awaiting any background message.
+    if (enabled && !await chrome.permissions.request({ permissions: ['browsingData'] })) {
+      feedback('Разрешение не выдано. Повторная загрузка без кэша остаётся доступна.'); return;
+    }
+    await send('recovery-setting', { enabled });
+    if (!enabled) await chrome.permissions.remove({ permissions: ['browsingData'] });
+    feedback(enabled ? 'Автовосстановление включено. Теперь возвращайтесь к фильму.' : 'Автовосстановление выключено.');
     await refresh();
   } catch (error) { feedback(error.message); }
   finally { button.disabled = false; }

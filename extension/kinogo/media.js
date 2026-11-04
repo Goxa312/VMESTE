@@ -16,6 +16,11 @@
       return rect.width >= 160 && rect.height >= 90 && getComputedStyle(video).visibility !== 'hidden';
     }).sort((a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height - a.getBoundingClientRect().width * a.getBoundingClientRect().height)[0];
   }
+  function pageHasContent() {
+    // Our panel lives outside body, so it cannot make an empty site look ready.
+    if (topFrame && (document.body?.innerText || '').trim().length >= 40) return true;
+    return !!candidate();
+  }
   function text(message) { if (statusText) statusText.textContent = message; }
   function collapse(value) {
     compact = value;
@@ -72,7 +77,7 @@
     if (!chrome.runtime?.id) { globalThis.__vmesteMedia.dispose(); return; }
     polling = true;
     try {
-      const next = await send('hello');
+      const next = await send('hello', { data: { pageReady: pageHasContent() } });
       if (!next) { stop(); return; }
       session = next;
       if (controller && (session.selectedFrameId !== session.frameId || !selectedVideo?.isConnected || selectedVideo.currentSrc !== selectedSource)) {

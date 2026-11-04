@@ -71,16 +71,20 @@ let listener, removed, updated, installed, stored = {}, nextTab = 100;
 const sent = [], activated = [], appStates = new Map(), tabs = new Map(), refreshReplies = new Map(), controlReplies = new Map();
 const injected = [];
 const createdOptions = [];
+const reloaded = [], scheduledAlarms = new Map();
 const manifest = JSON.parse(await readFile(new URL('../extension/kinogo/manifest.json', import.meta.url), 'utf8'));
 globalThis.chrome = {
   runtime: { id: 'extension', getURL: path => `chrome-extension://extension/${path}`, getManifest: () => manifest, onMessage: { addListener: f => { listener = f; } }, onInstalled: { addListener: f => { installed = f; } } },
   scripting: { executeScript: async options => { injected.push(options); return []; } },
-  storage: { session: { get: async () => structuredClone(stored), set: async value => { stored = structuredClone(value); } } },
+  storage: { session: { get: async () => structuredClone(stored), set: async value => { stored = structuredClone(value); } }, local: { get: async () => ({}), set: async () => {} } },
+  permissions: { contains: async () => false },
+  alarms: { create: async (name, options) => scheduledAlarms.set(name, options), clear: async name => scheduledAlarms.delete(name), onAlarm: { addListener() {} } },
   tabs: {
     query: async ({ url }) => [...tabs.values()].filter(tab => url.some(pattern => (tab.url || tab.pendingUrl || '').startsWith(pattern.slice(0, -1)))),
     create: async options => { createdOptions.push(options); const tab = { id: ++nextTab, pendingUrl: options.url, status: 'loading', incognito: options.windowId === 900 }; tabs.set(tab.id, tab); return tab; },
     get: async id => { if (!tabs.has(id)) throw new Error('No tab'); return tabs.get(id); },
     update: async (id, options) => { activated.push({ id, options }); return tabs.get(id) || {}; },
+    reload: async (id, options) => { reloaded.push({ id, options }); },
     sendMessage: async (tabId, message) => {
       sent.push({ tabId, message });
       if (message.type === 'refresh') return refreshReplies.get(tabId)?.() ?? { ok: true, state: appStates.get(tabId) };
@@ -218,7 +222,7 @@ test('reloading a movie clears its old player; a missing tab can be opened again
 });
 
 test('media panel survives document_start and appears before the page finishes loading', async () => {
-  const nodes = [], timers = [], errors = [];
+  const nodes = [], timers = [], errors = [], hellos = [];
   class Element {
     constructor(tag) { this.tag = tag; this.style = {}; this.children = []; this.isConnected = false; nodes.push(this); }
     append(...children) { this.children.push(...children); for (const child of children) child.isConnected = true; }
@@ -237,11 +241,12 @@ test('media panel survives document_start and appears before the page finishes l
     VmesteAutoSelection: selectorContext.VmesteAutoSelection,
     setInterval: fn => { timers.push(fn); return timers.length; }, clearInterval() {},
     chrome: { runtime: { id: 'extension', onMessage: { addListener() {} },
-      sendMessage: async () => ({ state: sample(), frameId: 0, selectedFrameId: null }) } },
+      sendMessage: async message => { if (message.type === 'hello') hellos.push(message.data); return { state: sample(), frameId: 0, selectedFrameId: null }; } } },
     console: { error: message => errors.push(message) }
   });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(nodes.length, 0, 'no DOM root yet');
+  assert.equal(hellos[0].pageReady, false, 'an injected script does not make an empty page ready');
   doc.documentElement = new Element('html');
   doc.querySelectorAll = () => [video];
   timers[0]();
@@ -249,6 +254,7 @@ test('media panel survives document_start and appears before the page finishes l
   const button = nodes.find(node => node.textContent === 'Подключить это видео');
   assert.ok(button);
   assert.equal(button.hidden, false);
+  assert.equal(hellos.at(-1).pageReady, true);
   assert.equal(doc.readyState, 'loading');
   assert.equal(doc.documentElement.children.length, 1);
   const panel = doc.documentElement.children[0];
@@ -330,21 +336,34 @@ test('blocked autoplay shows an actionable status without retrying play continuo
   assert.ok(messages.at(-1).includes('Синхронизировано')); controller.destroy();
 });
 
-test('comment-page links open the main film page; timed-out loads can retry in the same tab', async () => {
+test('comment-page links open the main film page; a timeout automatically reloads without cache in the same tab', async () => {
   assert.equal(moviePageUrl(movie + '#comment'), 'https://kinogo.my/films/53645-obitel-zla-219.html');
   assert.throws(() => moviePageUrl('https://evil.test/123-film.html'));
   await dispatch(app(76), 'connect', sample());
   const tabId = stored.sessions['76'].mediaTabId, realNow = Date.now, now = realNow();
   try {
     Date.now = () => now + 21000;
-    assert.equal((await dispatch(app(76), 'ping')).pageTimedOut, true);
+    assert.equal((await dispatch(app(76), 'ping')).recovering, true);
+    await new Promise(resolve => setImmediate(resolve));
     const before = nextTab;
     await dispatch(app(76), 'connect', sample());
     assert.equal(nextTab, before);
     assert.equal(activated.at(-1).id, tabId);
-    assert.equal(activated.at(-1).options.url, 'https://kinogo.my/films/53645-obitel-zla-219.html');
+    assert.deepEqual(reloaded.at(-1), { id: tabId, options: { bypassCache: true } });
     assert.equal((await dispatch(app(76), 'ping')).pageTimedOut, false);
   } finally { Date.now = realNow; await dispatch(app(76), 'disconnect'); }
+});
+
+test('empty document health does not disarm recovery; visible content does', async () => {
+  await dispatch(app(78), 'connect', sample());
+  const tabId = stored.sessions['78'].mediaTabId;
+  await dispatch(media(tabId, 0, movie), 'hello', { pageReady: false });
+  assert.equal((await dispatch(app(78), 'ping')).pageReady, false);
+  assert.equal(scheduledAlarms.has('vmeste-page:78'), true);
+  await dispatch(media(tabId, 0, movie), 'hello', { pageReady: true });
+  assert.equal((await dispatch(app(78), 'ping')).pageReady, true);
+  assert.equal(scheduledAlarms.has('vmeste-page:78'), false);
+  await dispatch(app(78), 'disconnect');
 });
 
 test('a private room never reuses a regular-window film and creates its tab in the room window', async () => {

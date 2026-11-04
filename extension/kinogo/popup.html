@@ -8,6 +8,12 @@
     <div id="rooms"></div>
     <button id="open" class="primary">Открыть «Вместе»</button>
     <button id="repair">Восстановить связь</button>
+    <section class="recovery" aria-labelledby="recovery-heading">
+      <h2 id="recovery-heading">Киного зависает при открытии?</h2>
+      <p>Если страница остаётся пустой около 10 секунд, этот режим сбросит данные только kinogo.my и откроет фильм снова. Это может выйти из аккаунта Киного. Без этого режима выполняется только повторная загрузка без кэша.</p>
+      <button id="auto-recovery" aria-pressed="false">Включить автовосстановление Киного</button>
+      <small id="recovery-status">Включается один раз. Работает только для пустой страницы, пока фильм ещё не подключён.</small>
+    </section>
     <p id="feedback" role="status" aria-live="polite"></p>
     <details><summary>Сайт не видит расширение?</summary><p>Нажмите «Восстановить связь». Комната и Киного должны быть открыты в этом же профиле Chrome. В инкогнито отдельно разрешите работу расширения в его настройках.</p><small id="sites"></small></details>
   </main><script type="module" src="popup.js"></script>

@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Вместе — просмотр Киного",
-  "version": "0.2.1",
+  "version": "0.3.1",
   "description": "Синхронизация выбранного HTML5-видео на Киного с открытой комнатой Вместе.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "scripting"],
+  "permissions": ["storage", "scripting", "alarms"],
+  "optional_permissions": ["browsingData"],
   "host_permissions": ["http://127.0.0.1/*", "http://localhost/*", "https://vmeste.dadvanigeorgii.workers.dev/*", "https://kinogo.my/*", "https://www.kinogo.my/*", "https://kinogomy.stravers.live/*"],
   "background": { "service_worker": "background.mjs", "type": "module" },
   "content_scripts": [

@@ -1,6 +1,8 @@
 import { APP_ORIGINS, appRoom, isAppSender, playback, isMediaSender, validateControl, movieId, moviePageUrl } from './protocol.mjs';
+import { createPageRecovery, pageTimedOut } from './page-recovery.mjs';
 
 let sessions;
+let autoRecovery = false;
 let queue = Promise.resolve();
 const refreshing = new WeakSet();
 function enqueue(task) {
@@ -9,9 +11,15 @@ function enqueue(task) {
   return work;
 }
 async function load() {
-  if (!sessions) sessions = (await chrome.storage.session.get('sessions')).sessions || {};
+  if (!sessions) {
+    sessions = (await chrome.storage.session.get('sessions')).sessions || {};
+    autoRecovery = (await chrome.storage.local.get('autoRecovery')).autoRecovery === true;
+    // A service-worker restart must not leave a permanent "repairing" state.
+    for (const session of Object.values(sessions)) session.recovering = false;
+  }
 }
 async function save() { await chrome.storage.session.set({ sessions }); }
+const recovery = createPageRecovery({ current: key => sessions?.[key], all: () => sessions || {}, enqueue, save, movieId, enabled: () => autoRecovery });
 async function send(tabId, message, options, timeout = 16000) {
   let timer;
   try {
@@ -22,10 +30,9 @@ async function send(tabId, message, options, timeout = 16000) {
   } finally { clearTimeout(timer); }
 }
 function status(session) {
-  const pageTimedOut = !!session && !session.pageReady && Date.now() - (session.openedAt || session.state.sampledAt) > 20000;
   return { installed: true, connected: !!session, hasPlayer: !!session && Number.isInteger(session.frameId),
-    pageReady: !!session?.pageReady, pageTimedOut,
-    error: session?.error || (pageTimedOut ? 'Нет ответа от вкладки Киного. Если она пустая, проверьте загрузку сайта в Chrome и доступ расширения к нему.' : ''), version: chrome.runtime.getManifest().version };
+    pageReady: !!session?.pageReady, pageTimedOut: pageTimedOut(session), recovering: !!session?.recovering, autoRecovery,
+    error: session?.error || (pageTimedOut(session) && session.recoveryAttempts ? autoRecovery ? 'Киного не ответил после восстановления. Попробуйте позже или проверьте доступность сайта.' : 'Киного не ответил. В значке расширения можно один раз включить «Автовосстановление Киного».' : ''), version: chrome.runtime.getManifest().version };
 }
 function applyState(session, state) {
   if (state.revision > session.state.revision ||
@@ -56,6 +63,7 @@ async function stop(key) {
   if (!session) return;
   delete sessions[key];
   await save();
+  await recovery.cancel(key);
   void send(session.mediaTabId, { channel: 'vmeste-extension', type: 'stop' });
 }
 async function appTabs() {
@@ -76,9 +84,20 @@ function wakeMedia(tabId) {
   void send(tabId, { channel: 'vmeste-extension', type: 'wake' }, undefined, 1000);
 }
 async function popup(message) {
-  if (message.type === 'popup-status') return { version: chrome.runtime.getManifest().version, origins: APP_ORIGINS,
-    rooms: Object.values(sessions).map(session => ({ roomId: session.roomId, roomTabId: session.roomTabId,
-      mediaTabId: session.mediaTabId, ...status(session) })) };
+  if (message.type === 'recovery-setting') {
+    const allowed = message.enabled === true && await chrome.permissions.contains({ permissions: ['browsingData'] });
+    autoRecovery = !!allowed;
+    await chrome.storage.local.set({ autoRecovery });
+    if (autoRecovery) for (const session of Object.values(sessions)) if (pageTimedOut(session)) await recovery.start(session);
+    return { autoRecovery };
+  }
+  if (message.type === 'popup-status') {
+    for (const session of Object.values(sessions)) await recovery.start(session);
+    return { version: chrome.runtime.getManifest().version, origins: APP_ORIGINS,
+      autoRecovery: autoRecovery && await chrome.permissions.contains({ permissions: ['browsingData'] }),
+      rooms: Object.values(sessions).map(session => ({ roomId: session.roomId, roomTabId: session.roomTabId,
+        mediaTabId: session.mediaTabId, ...status(session) })) };
+  }
   if (message.type === 'repair') return repairTabs();
   if (message.type === 'open-app') {
     const tabs = await appTabs();
@@ -89,6 +108,7 @@ async function popup(message) {
   }
   const session = sessions[String(message.roomTabId)];
   if (!session) throw new Error('Комната уже закрыта. Откройте её на сайте.');
+  if (message.type === 'popup-retry') { await recovery.start(session, true); return { ok: true }; }
   if (message.type === 'popup-room' || message.type === 'popup-film') {
     await chrome.tabs.update(message.type === 'popup-room' ? session.roomTabId : session.mediaTabId, { active: true });
     return { ok: true };
@@ -101,7 +121,11 @@ async function handle(message, sender) {
   const roomId = appRoom(sender);
   if (message.channel !== 'vmeste-extension') return null;
   if (sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('popup.html')) return popup(message);
-  if (message.type === 'ping' && isAppSender(sender)) return status(sessions[String(sender.tab.id)]);
+  if (message.type === 'ping' && isAppSender(sender)) {
+    const session = sessions[String(sender.tab.id)];
+    if (session) await recovery.start(session);
+    return status(session);
+  }
   if (roomId) {
     const key = String(sender.tab.id);
     if (message.type === 'ping') return status(sessions[key]);
@@ -114,11 +138,11 @@ async function handle(message, sender) {
         const tab = await chrome.tabs.get(existing.mediaTabId).catch(() => null);
         const id = movieId(state.sourceUrl);
         if (tab && (movieId(tab.url) === id || movieId(tab.pendingUrl) === id)) {
-          const retry = status(existing).pageTimedOut;
+          const retry = pageTimedOut(existing);
           applyState(existing, state);
-          if (retry) existing.openedAt = Date.now();
           await save();
-          await chrome.tabs.update(existing.mediaTabId, { active: true, ...(retry ? { url: moviePageUrl(state.sourceUrl) } : {}) });
+          await chrome.tabs.update(existing.mediaTabId, { active: true });
+          if (retry) await recovery.start(existing, true);
           wakeMedia(existing.mediaTabId);
           return status(existing);
         }
@@ -131,6 +155,7 @@ async function handle(message, sender) {
         ...(Number.isInteger(sender.tab.windowId) ? { windowId: sender.tab.windowId } : {}) });
       sessions[key] = { roomTabId: sender.tab.id, roomId, mediaTabId: tab.id, frameId: null, pageReady: false, openedAt: Date.now(), state, error: '' };
       await save();
+      await recovery.watch(sessions[key]);
       if (reusable) wakeMedia(tab.id);
       return status(sessions[key]);
     }
@@ -140,6 +165,7 @@ async function handle(message, sender) {
       if (state.sourceUrl !== session.state.sourceUrl || session.roomId !== roomId) { await stop(key); return status(null); }
       applyState(session, state);
       await save();
+      await recovery.start(session);
       return status(session);
     }
     throw new Error('Неизвестная команда комнаты');
@@ -148,7 +174,12 @@ async function handle(message, sender) {
   if (!entry) return null;
   const [key, session] = entry;
   if (message.type === 'hello') {
-    if (!session.pageReady) { session.pageReady = true; await save(); }
+    // A content-script hello at document_start does not mean the site loaded.
+    // Old content scripts remain compatible until their tab is refreshed.
+    if (!session.pageReady && (message.data?.pageReady === true || message.data === undefined)) {
+      session.pageReady = true; session.error = ''; await save();
+      await recovery.cancel(key);
+    }
     refreshRoom(key, session);
     return { state: session.state, frameId: sender.frameId, selectedFrameId: session.frameId };
   }
@@ -157,8 +188,10 @@ async function handle(message, sender) {
       return { state: session.state, frameId: sender.frameId, selectedFrameId: session.frameId };
     }
     session.frameId = sender.frameId;
+    session.pageReady = true;
     session.error = '';
     await save();
+    await recovery.cancel(key);
     return { state: session.state, frameId: sender.frameId, selectedFrameId: session.frameId };
   }
   if (message.type === 'report' && sender.frameId === session.frameId) {
@@ -198,13 +231,30 @@ function enqueueCleanup(predicate) {
 }
 chrome.tabs.onRemoved.addListener(tabId => enqueueCleanup(s => s.roomTabId === tabId || s.mediaTabId === tabId));
 chrome.runtime.onInstalled.addListener(() => { void repairTabs().catch(() => {}); });
+chrome.permissions.onRemoved?.addListener(permissions => {
+  if (!permissions.permissions?.includes('browsingData')) return;
+  void enqueue(async () => {
+    await load(); autoRecovery = false;
+    await chrome.storage.local.set({ autoRecovery });
+  }).catch(() => {});
+});
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (!alarm.name.startsWith('vmeste-page:')) return;
+  void enqueue(async () => {
+    await load();
+    const session = sessions[alarm.name.slice('vmeste-page:'.length)];
+    if (session) await recovery.start(session);
+  }).catch(() => {});
+});
 chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (change.url) enqueueCleanup(s => (s.roomTabId === tabId && appRoom({ tab: { id: tabId }, frameId: 0, url: change.url }) !== s.roomId) ||
     (s.mediaTabId === tabId && movieId(change.url) !== movieId(s.state.sourceUrl)));
   if (change.status === 'loading') void enqueue(async () => {
     await load();
     for (const session of Object.values(sessions)) if (session.mediaTabId === tabId) {
+      if (session.pageReady || Number.isInteger(session.frameId)) session.recoveryAttempts = 0;
       session.pageReady = false; session.frameId = null; session.error = ''; session.openedAt = Date.now();
+      await recovery.watch(session);
     }
     await save();
   }).catch(() => {});

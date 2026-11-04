@@ -30,11 +30,14 @@ test('default archive preserves every local extension source file', async () => 
   const result = run(['--output', output]);
   assert.equal(result.status, 0, result.stderr);
   const files = unpack(await readFile(output));
-  assert.equal(files.size, 11);
+  assert.equal(files.size, 12);
+  assert.ok(files.has('page-recovery.mjs'));
   const manifest = JSON.parse(files.get('manifest.json'));
   assert.ok(files.has(manifest.action.default_popup));
   for (const entry of manifest.content_scripts) for (const file of entry.js) assert.ok(files.has(file), file);
   assert.ok(manifest.host_permissions.includes('https://vmeste.dadvanigeorgii.workers.dev/*'));
+  assert.deepEqual(manifest.optional_permissions, ['browsingData']);
+  assert.equal(manifest.permissions.includes('browsingData'), false, 'site-data cleanup must remain opt-in');
   for (const [name, content] of files) assert.equal(content, await readFile(new URL(`extension/kinogo/${name}`, root), 'utf8'));
 });
 test('public archive admits only the configured HTTPS site and leaves local sources unchanged', async () => {

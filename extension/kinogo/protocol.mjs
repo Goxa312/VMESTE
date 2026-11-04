@@ -1,4 +1,4 @@
-export const APP_ORIGINS = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+export const APP_ORIGINS = ['http://127.0.0.1:5173', 'http://localhost:5173', 'https://vmeste.dadvanigeorgii.workers.dev'];
 export const MEDIA_ORIGINS = ['https://kinogo.my', 'https://www.kinogo.my', 'https://kinogomy.stravers.live'];
 
 export function movieId(value) {
@@ -9,12 +9,16 @@ export function movieId(value) {
   } catch { return null; }
 }
 
-export function appRoom(sender) {
+export function isAppSender(sender) {
   try {
     const u = new URL(sender.url);
-    if (sender.frameId !== 0 || !Number.isInteger(sender.tab?.id) || !APP_ORIGINS.includes(u.origin)) return null;
-    return u.pathname.match(/^\/room\/([a-z0-9]{12})\/?$/)?.[1] ?? null;
-  } catch { return null; }
+    return sender.frameId === 0 && Number.isInteger(sender.tab?.id) && APP_ORIGINS.includes(u.origin);
+  } catch { return false; }
+}
+
+export function appRoom(sender) {
+  if (!isAppSender(sender)) return null;
+  return new URL(sender.url).pathname.match(/^\/room\/([a-z0-9]{12})\/?$/)?.[1] ?? null;
 }
 
 export function playback(data, roomId) {

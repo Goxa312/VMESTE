@@ -3,22 +3,23 @@ import { fileURLToPath } from 'node:url';
 import { deflateRawSync } from 'node:zlib';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { APP_ORIGINS } from '../extension/kinogo/protocol.mjs';
 
 const { values } = parseArgs({ options: { origin: { type: 'string' }, output: { type: 'string' } } });
 const publicAddress = (values.origin ?? process.env.VMESTE_APP_ORIGIN ?? '').trim();
-const origins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+const origins = [...APP_ORIGINS];
 let publicOrigin;
 if (publicAddress) {
   const url = new URL(publicAddress);
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.pathname !== '/' || url.search || url.hash ||
       !/^[a-z0-9.-]+$/i.test(url.hostname)) throw new Error('VMESTE_APP_ORIGIN: нужен HTTPS-адрес сайта без пути, порта и параметров.');
   publicOrigin = url.origin;
-  origins.push(publicOrigin);
+  if (!origins.includes(publicOrigin)) origins.push(publicOrigin);
 }
 
 // Small reproducible ZIP writer; no external packaging/runtime dependency.
 const root = new URL('../extension/kinogo/', import.meta.url);
-const files = ['manifest.json', 'protocol.mjs', 'background.mjs', 'bridge.js', 'media-controller.js', 'media.js', 'README.md'];
+const files = ['manifest.json', 'protocol.mjs', 'background.mjs', 'bridge.js', 'media-controller.js', 'media-selection.js', 'media.js', 'popup.html', 'popup.css', 'popup.js', 'README.md'];
 function crc32(bytes) {
   let crc = 0xffffffff;
   for (const byte of bytes) { crc ^= byte; for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1)); }
@@ -31,13 +32,14 @@ for (const file of files) {
   if (publicOrigin) {
     if (file === 'manifest.json') {
       const manifest = JSON.parse(data.toString('utf8'));
-      manifest.host_permissions.push(`${publicOrigin}/*`);
-      manifest.content_scripts[0].matches.push(`${publicOrigin}/*`);
+      manifest.host_permissions = [...new Set([...manifest.host_permissions, `${publicOrigin}/*`])];
+      manifest.content_scripts[0].matches = [...new Set([...manifest.content_scripts[0].matches, `${publicOrigin}/*`])];
       data = Buffer.from(JSON.stringify(manifest, null, 2) + '\n');
     } else if (file === 'protocol.mjs' || file === 'bridge.js') {
       const source = data.toString('utf8');
-      const changed = source.replace(/const APP_ORIGINS = \[[^\n]*\];/, `const APP_ORIGINS = ${JSON.stringify(origins)};`);
-      if (changed === source) throw new Error(`Cannot configure origins in ${file}`);
+      const pattern = /const APP_ORIGINS = \[[^\n]*\];/;
+      if (!pattern.test(source)) throw new Error(`Cannot configure origins in ${file}`);
+      const changed = source.replace(pattern, `const APP_ORIGINS = ${JSON.stringify(origins)};`);
       data = Buffer.from(changed);
     } else if (file === 'README.md') {
       data = Buffer.from(`# Публичная сборка\n\nАдрес приложения: ${publicOrigin}\n\nУстановите ZIP по инструкции ниже и откройте комнату по этому адресу. Локальные адреса также поддерживаются.\n\n` + data.toString('utf8'));

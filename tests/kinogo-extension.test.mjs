@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { appRoom, movieId, playback } from '../extension/kinogo/protocol.mjs';
+import { appRoom, isAppSender, movieId, playback } from '../extension/kinogo/protocol.mjs';
 import { isKinogoPage, videoUrlError } from '../lib/video-source.ts';
 
 const movie = 'https://kinogo.my/films/page,1,2,53645-obitel-zla-219.html';
@@ -67,12 +67,16 @@ test('old snapshots cannot undo a newer seek; stale connection stops correction'
   assert.ok(messages.at(-1).includes('Нет связи')); controller.destroy();
 });
 
-let listener, removed, updated, stored = {}, nextTab = 100;
+let listener, removed, updated, installed, stored = {}, nextTab = 100;
 const sent = [], activated = [], appStates = new Map(), tabs = new Map(), refreshReplies = new Map(), controlReplies = new Map();
+const injected = [];
+const manifest = JSON.parse(await readFile(new URL('../extension/kinogo/manifest.json', import.meta.url), 'utf8'));
 globalThis.chrome = {
-  runtime: { getManifest: () => ({ version: '0.1.1' }), onMessage: { addListener: f => { listener = f; } } },
+  runtime: { id: 'extension', getURL: path => `chrome-extension://extension/${path}`, getManifest: () => manifest, onMessage: { addListener: f => { listener = f; } }, onInstalled: { addListener: f => { installed = f; } } },
+  scripting: { executeScript: async options => { injected.push(options); return []; } },
   storage: { session: { get: async () => structuredClone(stored), set: async value => { stored = structuredClone(value); } } },
   tabs: {
+    query: async ({ url }) => [...tabs.values()].filter(tab => url.some(pattern => (tab.url || tab.pendingUrl || '').startsWith(pattern.slice(0, -1)))),
     create: async ({ url }) => { const tab = { id: ++nextTab, pendingUrl: url, status: 'loading' }; tabs.set(tab.id, tab); return tab; },
     get: async id => { if (!tabs.has(id)) throw new Error('No tab'); return tabs.get(id); },
     update: async (id, options) => { activated.push({ id, options }); return tabs.get(id) || {}; },
@@ -121,6 +125,7 @@ test('closing the room or navigating to another film revokes the media session',
 });
 
 test('opening Kinogo twice reuses the loading tab and preserves the chosen player', async () => {
+  const firstMessage = sent.length;
   await dispatch(app(10), 'connect', sample());
   const firstTab = stored.sessions['10'].mediaTabId;
   await dispatch(media(firstTab), 'select');
@@ -130,7 +135,7 @@ test('opening Kinogo twice reuses the loading tab and preserves the chosen playe
   assert.equal(stored.sessions['10'].mediaTabId, firstTab);
   assert.equal(result.hasPlayer, true, 'the first player must remain connected');
   assert.equal(activated.at(-1).id, firstTab);
-  assert.equal(sent.some(item => item.tabId === firstTab && item.message.type === 'stop'), false);
+  assert.equal(sent.slice(firstMessage).some(item => item.tabId === firstTab && item.message.type === 'stop'), false);
   await dispatch(app(10), 'disconnect');
 });
 
@@ -224,8 +229,11 @@ test('media panel survives document_start and appears before the page finishes l
   const video = { getBoundingClientRect: () => ({ width: 640, height: 360 }) };
   const doc = { documentElement: null, readyState: 'loading', createElement: tag => new Element(tag), querySelectorAll: () => [] };
   const win = {}; win.top = win;
+  const selectorContext = vm.createContext({});
+  vm.runInContext(await readFile(new URL('../extension/kinogo/media-selection.js', import.meta.url), 'utf8'), selectorContext);
   vm.runInNewContext(await readFile(new URL('../extension/kinogo/media.js', import.meta.url), 'utf8'), {
     document: doc, window: win, getComputedStyle: () => ({ visibility: 'visible' }),
+    VmesteAutoSelection: selectorContext.VmesteAutoSelection,
     setInterval: fn => { timers.push(fn); return timers.length; }, clearInterval() {},
     chrome: { runtime: { id: 'extension', onMessage: { addListener() {} },
       sendMessage: async () => ({ state: sample(), frameId: 0, selectedFrameId: null }) } },
@@ -248,4 +256,75 @@ test('media panel survives document_start and appears before the page finishes l
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(panel.isConnected, true, 'restore panel if page construction removed it');
   assert.deepEqual(errors, []);
+});
+
+test('the unpacked project extension recognizes the live site and supports setup-page diagnostics', async () => {
+  const sender = { id: 'extension', tab: { id: 70 }, frameId: 0, url: 'https://vmeste.dadvanigeorgii.workers.dev/kinogo-extension' };
+  assert.equal(isAppSender(sender), true);
+  assert.equal(appRoom(sender), null);
+  const result = await dispatch(sender, 'ping');
+  assert.equal(result.installed, true); assert.equal(result.version, '0.2.0');
+  assert.equal(await dispatch(sender, 'connect', sample()), null);
+  assert.equal(await dispatch({ ...sender, frameId: 3 }, 'ping'), null);
+  assert.equal(await dispatch({ ...sender, url: 'https://evil.test/kinogo-extension' }, 'ping'), null);
+  assert.equal(appRoom({ ...sender, url: `https://vmeste.dadvanigeorgii.workers.dev/room/${roomId}` }), roomId);
+});
+
+test('installation and popup repair reconnect only configured app tabs', async () => {
+  tabs.set(71, { id: 71, url: `https://vmeste.dadvanigeorgii.workers.dev/room/${roomId}` });
+  tabs.set(72, { id: 72, url: 'https://unrelated.test/' });
+  injected.length = 0;
+  installed(); await new Promise(resolve => setImmediate(resolve));
+  assert.ok(injected.some(item => item.target.tabId === 71 && item.files[0] === 'bridge.js'));
+  assert.equal(injected.some(item => item.target.tabId === 72), false);
+  const result = await dispatch({ id: 'extension', url: 'chrome-extension://extension/popup.html' }, 'repair');
+  assert.ok(result.repaired >= 1);
+  assert.equal(await dispatch({ id: 'extension', tab: { id: 72 }, frameId: 0, url: 'https://unrelated.test/' }, 'repair'), null);
+  tabs.delete(71); tabs.delete(72);
+});
+
+test('automatic selection cannot steal a manually selected player in another frame', async () => {
+  await dispatch(app(73), 'connect', sample());
+  const tabId = stored.sessions['73'].mediaTabId;
+  await dispatch(media(tabId, 7), 'select');
+  const attempt = await dispatch(media(tabId, 8), 'select', { automatic: true });
+  assert.equal(attempt.selectedFrameId, 7);
+  assert.equal(stored.sessions['73'].frameId, 7);
+  await dispatch(app(73), 'disconnect');
+});
+
+test('disconnect and reconnect reuse an open film without stealing another room tab', async () => {
+  await dispatch(app(74), 'connect', sample());
+  const first = stored.sessions['74'].mediaTabId;
+  await dispatch(app(74), 'disconnect');
+  await dispatch(app(74), 'connect', sample());
+  assert.equal(stored.sessions['74'].mediaTabId, first);
+  await dispatch(app(75), 'connect', sample());
+  assert.notEqual(stored.sessions['75'].mediaTabId, first);
+  await dispatch(app(74), 'disconnect'); await dispatch(app(75), 'disconnect');
+});
+
+test('automatic selection waits for stable playback and rejects short clips, loading, and changed sources', async () => {
+  const selectorContext = vm.createContext({});
+  vm.runInContext(await readFile(new URL('../extension/kinogo/media-selection.js', import.meta.url), 'utf8'), selectorContext);
+  const selection = new selectorContext.VmesteAutoSelection();
+  const video = { paused: false, ended: false, seeking: false, readyState: 4, duration: 90, currentSrc: 'blob:ad' };
+  assert.equal(selection.ready(video, 1000), false); assert.equal(selection.ready(video, 5000), false);
+  Object.assign(video, { duration: 5400, currentSrc: 'blob:film' });
+  assert.equal(selection.ready(video, 6000), false); assert.equal(selection.ready(video, 8000), false);
+  assert.equal(selection.ready(video, 9000), true);
+  video.currentSrc = 'blob:new-film'; assert.equal(selection.ready(video, 10000), false);
+  video.paused = true; assert.equal(selection.ready(video, 15000), false);
+  video.paused = false; assert.equal(selection.ready(video, 16000), false);
+});
+
+test('blocked autoplay shows an actionable status without retrying play continuously', async () => {
+  const video = new Video(), messages = []; let attempts = 0;
+  video.play = async () => { attempts++; throw new Error('NotAllowedError'); };
+  const controller = new Controller(video, async () => {}, message => messages.push(message), () => 100000);
+  controller.update(sample({ isHost: false, playing: true, sampledAt: 100000 }));
+  controller.tick(); await new Promise(resolve => setImmediate(resolve)); controller.tick(); controller.tick();
+  assert.equal(attempts, 1); assert.ok(messages.at(-1).includes('Нажмите'));
+  video.paused = false; video.dispatchEvent(new Event('play')); controller.tick();
+  assert.ok(messages.at(-1).includes('Синхронизировано')); controller.destroy();
 });

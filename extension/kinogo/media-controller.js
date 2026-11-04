@@ -16,6 +16,7 @@ globalThis.VmesteMediaController = class {
     this.state = state;
   }
   changed(event) {
+    if (event.type === 'play') this.autoplayBlocked = false;
     if (!this.active || !this.state?.isHost) return;
     const data = { playing: !this.video.paused && !this.video.ended, position: this.video.currentTime };
     if (this.now() < this.suppressUntil && this.expected &&
@@ -52,7 +53,8 @@ globalThis.VmesteMediaController = class {
     if (Math.abs(drift) > .8 || (!s.playing && Math.abs(drift) > .12)) v.currentTime = target;
     v.playbackRate = s.playing && Math.abs(drift) > .18 && Math.abs(drift) <= .8 ? (drift > 0 ? 1.03 : .97) : 1;
     if (s.playing && v.paused && !v.ended) {
-      void v.play().catch(() => this.status('Нажмите ▶ в плеере, чтобы разрешить звук.'));
+      if (this.autoplayBlocked) { this.status('Нажмите ▶ в плеере, чтобы разрешить звук.'); return; }
+      void v.play().catch(() => { this.autoplayBlocked = true; this.status('Нажмите ▶ в плеере, чтобы разрешить звук.'); });
     } else if (!s.playing && !v.paused) v.pause();
     this.status(s.isHost ? 'Вы ведущий · действия передаются в комнату' : 'Синхронизировано с ведущим');
   }

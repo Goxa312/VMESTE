@@ -30,7 +30,11 @@ test('default archive preserves every local extension source file', async () => 
   const result = run(['--output', output]);
   assert.equal(result.status, 0, result.stderr);
   const files = unpack(await readFile(output));
-  assert.equal(files.size, 7);
+  assert.equal(files.size, 11);
+  const manifest = JSON.parse(files.get('manifest.json'));
+  assert.ok(files.has(manifest.action.default_popup));
+  for (const entry of manifest.content_scripts) for (const file of entry.js) assert.ok(files.has(file), file);
+  assert.ok(manifest.host_permissions.includes('https://vmeste.dadvanigeorgii.workers.dev/*'));
   for (const [name, content] of files) assert.equal(content, await readFile(new URL(`extension/kinogo/${name}`, root), 'utf8'));
 });
 test('public archive admits only the configured HTTPS site and leaves local sources unchanged', async () => {
@@ -50,11 +54,20 @@ test('public archive admits only the configured HTTPS site and leaves local sour
   assert.equal(protocol.appRoom(sender('http://watch.example.test')), null);
   for (const [origin, expected] of [['https://watch.example.test', 1], ['http://localhost:5173', 1], ['https://other.example.test', 0]]) {
     let listeners = 0;
-    vm.runInNewContext(files.get('bridge.js'), { location: { origin }, window: { addEventListener() { listeners++; } },
-      chrome: { runtime: { onMessage: { addListener() {} } } } });
+    vm.runInNewContext(files.get('bridge.js'), { location: { origin }, window: { addEventListener() { listeners++; }, postMessage() {} },
+      chrome: { runtime: { getManifest: () => ({ version: '0.2.0' }), onMessage: { addListener() {} } } } });
     assert.equal(listeners, expected, origin);
   }
   assert.equal(await readFile(bridgeSource, 'utf8'), before);
+});
+
+test('packaging for the existing public site never duplicates origin permissions', async () => {
+  const output = fileURLToPath(new URL('production.zip', scratch));
+  const result = run(['--origin', 'https://vmeste.dadvanigeorgii.workers.dev', '--output', output]);
+  assert.equal(result.status, 0, result.stderr);
+  const files = unpack(await readFile(output)), manifest = JSON.parse(files.get('manifest.json'));
+  assert.equal(new Set(manifest.host_permissions).size, manifest.host_permissions.length);
+  assert.equal(new Set(manifest.content_scripts[0].matches).size, manifest.content_scripts[0].matches.length);
 });
 test('packaging refuses insecure, wildcard and non-origin URLs', () => {
   for (const origin of ['http://watch.example.test', 'https://*.example.test', 'https://watch.example.test/room/x', 'https://watch.example.test?x=y', 'https://user:pass@watch.example.test']) {

@@ -1,24 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Вместе — просмотр Киного",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Синхронизация выбранного HTML5-видео на Киного с открытой комнатой Вместе.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage"],
-  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*", "https://kinogo.my/*", "https://www.kinogo.my/*", "https://kinogomy.stravers.live/*"],
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*", "https://vmeste.dadvanigeorgii.workers.dev/*", "https://kinogo.my/*", "https://www.kinogo.my/*", "https://kinogomy.stravers.live/*"],
   "background": { "service_worker": "background.mjs", "type": "module" },
   "content_scripts": [
     {
-      "matches": ["http://127.0.0.1/*", "http://localhost/*"],
+      "matches": ["http://127.0.0.1/*", "http://localhost/*", "https://vmeste.dadvanigeorgii.workers.dev/*"],
       "js": ["bridge.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://kinogo.my/*", "https://www.kinogo.my/*", "https://kinogomy.stravers.live/*"],
-      "js": ["media-controller.js", "media.js"],
+      "js": ["media-controller.js", "media-selection.js", "media.js"],
       "all_frames": true,
       "run_at": "document_start"
     }
   ],
-  "action": { "default_title": "Вместе — подключайте просмотр из комнаты" }
+  "action": { "default_title": "Вместе — состояние просмотра", "default_popup": "popup.html" }
 }

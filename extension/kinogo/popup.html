@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Вместе</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header><strong><span class="logo">▶</span> вместе.</strong><span id="version"></span></header>
+  <main>
+    <div class="status"><span class="dot"></span><h1 id="heading">Проверяем подключение…</h1></div>
+    <p id="description">Оставьте комнату открытой во время просмотра.</p>
+    <div id="rooms"></div>
+    <button id="open" class="primary">Открыть «Вместе»</button>
+    <button id="repair">Восстановить связь</button>
+    <p id="feedback" role="status" aria-live="polite"></p>
+    <details><summary>Сайт не видит расширение?</summary><p>Нажмите «Восстановить связь». Комната и Киного должны быть открыты в этом же профиле Chrome. В инкогнито отдельно разрешите работу расширения в его настройках.</p><small id="sites"></small></details>
+  </main><script type="module" src="popup.js"></script>
+</body></html>

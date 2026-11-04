@@ -1,4 +1,4 @@
-import { appRoom, playback, isMediaSender, validateControl, movieId } from './protocol.mjs';
+import { APP_ORIGINS, appRoom, isAppSender, playback, isMediaSender, validateControl, movieId } from './protocol.mjs';
 
 let sessions;
 let queue = Promise.resolve();
@@ -57,10 +57,50 @@ async function stop(key) {
   await save();
   void send(session.mediaTabId, { channel: 'vmeste-extension', type: 'stop' });
 }
+async function appTabs() {
+  const tabs = await chrome.tabs.query({ url: chrome.runtime.getManifest().content_scripts[0].matches });
+  return tabs.filter(tab => isAppSender({ tab, url: tab.url, frameId: 0 }));
+}
+async function repairTabs() {
+  const tabs = await appTabs();
+  const results = await Promise.allSettled(tabs.map(tab => chrome.scripting.executeScript({
+    target: { tabId: tab.id }, files: ['bridge.js']
+  })));
+  return { repaired: results.filter(result => result.status === 'fulfilled').length, found: tabs.length };
+}
+function wakeMedia(tabId) {
+  // Existing film tabs may predate installation. Injection is idempotent.
+  void chrome.scripting.executeScript({ target: { tabId, allFrames: true },
+    files: ['media-controller.js', 'media-selection.js', 'media.js'] }).catch(() => {});
+  void send(tabId, { channel: 'vmeste-extension', type: 'wake' }, undefined, 1000);
+}
+async function popup(message) {
+  if (message.type === 'popup-status') return { version: chrome.runtime.getManifest().version, origins: APP_ORIGINS,
+    rooms: Object.values(sessions).map(session => ({ roomId: session.roomId, roomTabId: session.roomTabId,
+      mediaTabId: session.mediaTabId, ...status(session) })) };
+  if (message.type === 'repair') return repairTabs();
+  if (message.type === 'open-app') {
+    const tabs = await appTabs();
+    const roomTab = tabs.find(tab => appRoom({ tab, url: tab.url, frameId: 0 }));
+    if (roomTab || tabs[0]) await chrome.tabs.update((roomTab || tabs[0]).id, { active: true });
+    else await chrome.tabs.create({ url: APP_ORIGINS.find(origin => origin.startsWith('https:')) || APP_ORIGINS[0], active: true });
+    return { ok: true };
+  }
+  const session = sessions[String(message.roomTabId)];
+  if (!session) throw new Error('Комната уже закрыта. Откройте её на сайте.');
+  if (message.type === 'popup-room' || message.type === 'popup-film') {
+    await chrome.tabs.update(message.type === 'popup-room' ? session.roomTabId : session.mediaTabId, { active: true });
+    return { ok: true };
+  }
+  if (message.type === 'popup-disconnect') { await stop(String(message.roomTabId)); return { ok: true }; }
+  return null;
+}
 async function handle(message, sender) {
   await load();
   const roomId = appRoom(sender);
   if (message.channel !== 'vmeste-extension') return null;
+  if (sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('popup.html')) return popup(message);
+  if (message.type === 'ping' && isAppSender(sender)) return status(sessions[String(sender.tab.id)]);
   if (roomId) {
     const key = String(sender.tab.id);
     if (message.type === 'ping') return status(sessions[key]);
@@ -76,13 +116,18 @@ async function handle(message, sender) {
           applyState(existing, state);
           await save();
           await chrome.tabs.update(existing.mediaTabId, { active: true });
+          wakeMedia(existing.mediaTabId);
           return status(existing);
         }
       }
       await stop(key);
-      const tab = await chrome.tabs.create({ url: state.sourceUrl, active: true });
+      const openTabs = await chrome.tabs.query({ url: ['https://kinogo.my/*', 'https://www.kinogo.my/*'] });
+      const reusable = openTabs.find(tab => movieId(tab.url || tab.pendingUrl) === movieId(state.sourceUrl) &&
+        !Object.values(sessions).some(session => session.mediaTabId === tab.id));
+      const tab = reusable ? await chrome.tabs.update(reusable.id, { active: true }) : await chrome.tabs.create({ url: state.sourceUrl, active: true });
       sessions[key] = { roomTabId: sender.tab.id, roomId, mediaTabId: tab.id, frameId: null, pageReady: false, state, error: '' };
       await save();
+      if (reusable) wakeMedia(tab.id);
       return status(sessions[key]);
     }
     if (message.type === 'state') {
@@ -104,6 +149,9 @@ async function handle(message, sender) {
     return { state: session.state, frameId: sender.frameId, selectedFrameId: session.frameId };
   }
   if (message.type === 'select') {
+    if (message.data?.automatic && Number.isInteger(session.frameId) && session.frameId !== sender.frameId) {
+      return { state: session.state, frameId: sender.frameId, selectedFrameId: session.frameId };
+    }
     session.frameId = sender.frameId;
     session.error = '';
     await save();
@@ -145,6 +193,7 @@ function enqueueCleanup(predicate) {
   }).catch(() => {});
 }
 chrome.tabs.onRemoved.addListener(tabId => enqueueCleanup(s => s.roomTabId === tabId || s.mediaTabId === tabId));
+chrome.runtime.onInstalled.addListener(() => { void repairTabs().catch(() => {}); });
 chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (change.url) enqueueCleanup(s => (s.roomTabId === tabId && appRoom({ tab: { id: tabId }, frameId: 0, url: change.url }) !== s.roomId) ||
     (s.mediaTabId === tabId && movieId(change.url) !== movieId(s.state.sourceUrl)));

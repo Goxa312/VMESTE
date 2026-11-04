@@ -8,8 +8,7 @@
     {
       "binding": "DB",
       "database_name": "vmeste-db",
-      // Replace with the ID of your Cloudflare D1 database before deployment.
-      "database_id": "00000000-0000-4000-8000-000000000000",
+      "database_id": "6f8c3b2c-695c-4e39-9568-c255780992af",
       "migrations_dir": "drizzle"
     }
   ]

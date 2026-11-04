@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
-import { extensionRequest, needsExtensionUpdate } from '../lib/kinogo-bridge.ts';
+import { EXTENSION_VERSION, extensionRequest, needsExtensionUpdate } from '../lib/kinogo-bridge.ts';
 
 test('an obsolete bridge error cannot hide the live extension response', async () => {
   const listeners = new Set(), origin = 'https://vmeste.dadvanigeorgii.workers.dev';
@@ -26,7 +26,8 @@ test('missing or invalid extension replies remain unavailable instead of pretend
   globalThis.window = { location: { origin }, addEventListener: (_, fn) => listeners.add(fn), removeEventListener: (_, fn) => listeners.delete(fn), postMessage() {} };
   try { await assert.rejects(extensionRequest('ping', undefined, 10), /Расширение не ответило/); assert.equal(listeners.size, 0); }
   finally { delete globalThis.window; }
-  assert.equal(needsExtensionUpdate('0.1.1'), true); assert.equal(needsExtensionUpdate('0.2.0'), false); assert.equal(needsExtensionUpdate('0.10.0'), false);
+  assert.equal(needsExtensionUpdate('0.1.1'), true); assert.equal(needsExtensionUpdate(EXTENSION_VERSION), false); assert.equal(needsExtensionUpdate('0.10.0'), false);
+  assert.equal(needsExtensionUpdate('0.2.0', '0.2.0'), false);
 });
 
 test('reinjecting the bridge is idempotent and diagnostics work outside rooms', async () => {

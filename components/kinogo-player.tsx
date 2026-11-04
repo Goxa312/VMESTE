@@ -20,7 +20,7 @@ export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRef
       playing: s.room.playing, position: playbackPosition(s.room, now + s.offset), revision: s.room.revision, sampledAt: now };
   }
   const { extension, setExtension, checking, reachable, connectionError, check } = useKinogoExtension(state);
-  const updateRequired = extension.installed && needsExtensionUpdate(extension.version);
+  const updateRequired = extension.installed && needsExtensionUpdate(extension.version, "0.2.0");
   useEffect(() => {
     let alive = true;
     const receive = async (event: MessageEvent) => {
@@ -63,9 +63,9 @@ export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRef
       <span className={extension.connected && reachable ? "done" : ""}>{extension.connected && reachable ? <Check size={15}/> : "2"} Киного</span>
       <span className={extension.hasPlayer && reachable ? "done" : ""}>{extension.hasPlayer && reachable ? <Check size={15}/> : "3"} Синхронизация</span>
     </div>
-    <p className="kinogo-status" role="status" aria-live="polite">{checking && !reachable ? "Проверяем связь с расширением…" : !reachable ? extension.installed ? "Связь с расширением прервалась" : "Расширение пока не подключилось к этому сайту" : updateRequired ? `Доступна новая версия ${EXTENSION_VERSION}` : extension.connected ? extension.hasPlayer ? "Плеер подключён · синхронизация включена" : extension.pageReady ? "Запустите фильм во вкладке Киного" : "Ждём загрузку Киного…" : `Расширение ${extension.version} готово`}</p>
+    <p className="kinogo-status" role="status" aria-live="polite">{checking && !reachable ? "Проверяем связь с расширением…" : !reachable ? extension.installed ? "Связь с расширением прервалась" : "Расширение пока не подключилось к этому сайту" : updateRequired ? `Доступна новая версия ${EXTENSION_VERSION}` : extension.connected ? extension.hasPlayer ? "Плеер подключён · синхронизация включена" : extension.pageTimedOut ? "Киного пока не ответил" : extension.pageReady ? "Запустите фильм во вкладке Киного" : "Ждём загрузку Киного…" : `Расширение ${extension.version} готово`}</p>
     {reachable && !updateRequired ? <>
-      <button className="button primary" disabled={busy || !connected} onClick={() => void connect()}>{busy ? <Spinner/> : <ExternalLink size={17}/>} {extension.connected ? "К фильму" : "Смотреть на Киного"}</button>
+      <button className="button primary" disabled={busy || !connected} onClick={() => void connect()}>{busy ? <Spinner/> : <ExternalLink size={17}/>} {extension.pageTimedOut ? "Повторить загрузку Киного" : extension.connected ? "К фильму" : "Смотреть на Киного"}</button>
       {!connected && <small>Восстанавливаем связь с комнатой…</small>}
       {extension.connected && <button className="text-button" onClick={() => void extensionRequest("disconnect").then(setExtension).catch(e => setError(e.message))}><Unplug size={15}/>Отключить просмотр</button>}
     </> : <div className="kinogo-actions">

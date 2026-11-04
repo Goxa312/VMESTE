@@ -1,11 +1,11 @@
 import manifest from "../extension/kinogo/manifest.json" with { type: "json" };
 export const EXTENSION_VERSION = manifest.version;
-export type ExtensionStatus = { installed: boolean; connected: boolean; hasPlayer: boolean; pageReady?: boolean; error?: string; version?: string };
+export type ExtensionStatus = { installed: boolean; connected: boolean; hasPlayer: boolean; pageReady?: boolean; pageTimedOut?: boolean; error?: string; version?: string };
 export const EMPTY_EXTENSION: ExtensionStatus = { installed: false, connected: false, hasPlayer: false };
 
-export function needsExtensionUpdate(version?: string) {
+export function needsExtensionUpdate(version?: string, requiredVersion = EXTENSION_VERSION) {
   if (!version) return true;
-  const current = version.split(".").map(Number), required = EXTENSION_VERSION.split(".").map(Number);
+  const current = version.split(".").map(Number), required = requiredVersion.split(".").map(Number);
   for (let i = 0; i < required.length; i++) {
     if (!Number.isFinite(current[i])) return true;
     if (current[i] !== required[i]) return current[i] < required[i];

@@ -1,4 +1,4 @@
-import { APP_ORIGINS, appRoom, isAppSender, playback, isMediaSender, validateControl, movieId } from './protocol.mjs';
+import { APP_ORIGINS, appRoom, isAppSender, playback, isMediaSender, validateControl, movieId, moviePageUrl } from './protocol.mjs';
 
 let sessions;
 let queue = Promise.resolve();
@@ -22,9 +22,10 @@ async function send(tabId, message, options, timeout = 16000) {
   } finally { clearTimeout(timer); }
 }
 function status(session) {
+  const pageTimedOut = !!session && !session.pageReady && Date.now() - (session.openedAt || session.state.sampledAt) > 20000;
   return { installed: true, connected: !!session, hasPlayer: !!session && Number.isInteger(session.frameId),
-    pageReady: !!session?.pageReady,
-    error: session?.error || '', version: chrome.runtime.getManifest().version };
+    pageReady: !!session?.pageReady, pageTimedOut,
+    error: session?.error || (pageTimedOut ? 'Нет ответа от вкладки Киного. Если она пустая, проверьте загрузку сайта в Chrome и доступ расширения к нему.' : ''), version: chrome.runtime.getManifest().version };
 }
 function applyState(session, state) {
   if (state.revision > session.state.revision ||
@@ -113,19 +114,22 @@ async function handle(message, sender) {
         const tab = await chrome.tabs.get(existing.mediaTabId).catch(() => null);
         const id = movieId(state.sourceUrl);
         if (tab && (movieId(tab.url) === id || movieId(tab.pendingUrl) === id)) {
+          const retry = status(existing).pageTimedOut;
           applyState(existing, state);
+          if (retry) existing.openedAt = Date.now();
           await save();
-          await chrome.tabs.update(existing.mediaTabId, { active: true });
+          await chrome.tabs.update(existing.mediaTabId, { active: true, ...(retry ? { url: moviePageUrl(state.sourceUrl) } : {}) });
           wakeMedia(existing.mediaTabId);
           return status(existing);
         }
       }
       await stop(key);
       const openTabs = await chrome.tabs.query({ url: ['https://kinogo.my/*', 'https://www.kinogo.my/*'] });
-      const reusable = openTabs.find(tab => movieId(tab.url || tab.pendingUrl) === movieId(state.sourceUrl) &&
+      const reusable = openTabs.find(tab => !!tab.incognito === !!sender.tab.incognito && movieId(tab.url || tab.pendingUrl) === movieId(state.sourceUrl) &&
         !Object.values(sessions).some(session => session.mediaTabId === tab.id));
-      const tab = reusable ? await chrome.tabs.update(reusable.id, { active: true }) : await chrome.tabs.create({ url: state.sourceUrl, active: true });
-      sessions[key] = { roomTabId: sender.tab.id, roomId, mediaTabId: tab.id, frameId: null, pageReady: false, state, error: '' };
+      const tab = reusable ? await chrome.tabs.update(reusable.id, { active: true }) : await chrome.tabs.create({ url: moviePageUrl(state.sourceUrl), active: true,
+        ...(Number.isInteger(sender.tab.windowId) ? { windowId: sender.tab.windowId } : {}) });
+      sessions[key] = { roomTabId: sender.tab.id, roomId, mediaTabId: tab.id, frameId: null, pageReady: false, openedAt: Date.now(), state, error: '' };
       await save();
       if (reusable) wakeMedia(tab.id);
       return status(sessions[key]);
@@ -200,7 +204,7 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (change.status === 'loading') void enqueue(async () => {
     await load();
     for (const session of Object.values(sessions)) if (session.mediaTabId === tabId) {
-      session.pageReady = false; session.frameId = null; session.error = '';
+      session.pageReady = false; session.frameId = null; session.error = ''; session.openedAt = Date.now();
     }
     await save();
   }).catch(() => {});

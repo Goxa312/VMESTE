@@ -9,6 +9,14 @@ export function movieId(value) {
   } catch { return null; }
 }
 
+export function moviePageUrl(value) {
+  if (!movieId(value)) throw new Error('Нужна ссылка на страницу фильма Киного');
+  const url = new URL(value);
+  url.pathname = url.pathname.replace(/\/page,\d+,\d+,(?=\d+-[^/]+\.html$)/i, '/');
+  url.hash = '';
+  return url.href;
+}
+
 export function isAppSender(sender) {
   try {
     const u = new URL(sender.url);

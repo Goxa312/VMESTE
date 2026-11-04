@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { appRoom, isAppSender, movieId, playback } from '../extension/kinogo/protocol.mjs';
+import { appRoom, isAppSender, movieId, moviePageUrl, playback } from '../extension/kinogo/protocol.mjs';
 import { isKinogoPage, videoUrlError } from '../lib/video-source.ts';
 
 const movie = 'https://kinogo.my/films/page,1,2,53645-obitel-zla-219.html';
@@ -70,6 +70,7 @@ test('old snapshots cannot undo a newer seek; stale connection stops correction'
 let listener, removed, updated, installed, stored = {}, nextTab = 100;
 const sent = [], activated = [], appStates = new Map(), tabs = new Map(), refreshReplies = new Map(), controlReplies = new Map();
 const injected = [];
+const createdOptions = [];
 const manifest = JSON.parse(await readFile(new URL('../extension/kinogo/manifest.json', import.meta.url), 'utf8'));
 globalThis.chrome = {
   runtime: { id: 'extension', getURL: path => `chrome-extension://extension/${path}`, getManifest: () => manifest, onMessage: { addListener: f => { listener = f; } }, onInstalled: { addListener: f => { installed = f; } } },
@@ -77,7 +78,7 @@ globalThis.chrome = {
   storage: { session: { get: async () => structuredClone(stored), set: async value => { stored = structuredClone(value); } } },
   tabs: {
     query: async ({ url }) => [...tabs.values()].filter(tab => url.some(pattern => (tab.url || tab.pendingUrl || '').startsWith(pattern.slice(0, -1)))),
-    create: async ({ url }) => { const tab = { id: ++nextTab, pendingUrl: url, status: 'loading' }; tabs.set(tab.id, tab); return tab; },
+    create: async options => { createdOptions.push(options); const tab = { id: ++nextTab, pendingUrl: options.url, status: 'loading', incognito: options.windowId === 900 }; tabs.set(tab.id, tab); return tab; },
     get: async id => { if (!tabs.has(id)) throw new Error('No tab'); return tabs.get(id); },
     update: async (id, options) => { activated.push({ id, options }); return tabs.get(id) || {}; },
     sendMessage: async (tabId, message) => {
@@ -263,7 +264,7 @@ test('the unpacked project extension recognizes the live site and supports setup
   assert.equal(isAppSender(sender), true);
   assert.equal(appRoom(sender), null);
   const result = await dispatch(sender, 'ping');
-  assert.equal(result.installed, true); assert.equal(result.version, '0.2.0');
+  assert.equal(result.installed, true); assert.equal(result.version, manifest.version);
   assert.equal(await dispatch(sender, 'connect', sample()), null);
   assert.equal(await dispatch({ ...sender, frameId: 3 }, 'ping'), null);
   assert.equal(await dispatch({ ...sender, url: 'https://evil.test/kinogo-extension' }, 'ping'), null);
@@ -327,4 +328,31 @@ test('blocked autoplay shows an actionable status without retrying play continuo
   assert.equal(attempts, 1); assert.ok(messages.at(-1).includes('Нажмите'));
   video.paused = false; video.dispatchEvent(new Event('play')); controller.tick();
   assert.ok(messages.at(-1).includes('Синхронизировано')); controller.destroy();
+});
+
+test('comment-page links open the main film page; timed-out loads can retry in the same tab', async () => {
+  assert.equal(moviePageUrl(movie + '#comment'), 'https://kinogo.my/films/53645-obitel-zla-219.html');
+  assert.throws(() => moviePageUrl('https://evil.test/123-film.html'));
+  await dispatch(app(76), 'connect', sample());
+  const tabId = stored.sessions['76'].mediaTabId, realNow = Date.now, now = realNow();
+  try {
+    Date.now = () => now + 21000;
+    assert.equal((await dispatch(app(76), 'ping')).pageTimedOut, true);
+    const before = nextTab;
+    await dispatch(app(76), 'connect', sample());
+    assert.equal(nextTab, before);
+    assert.equal(activated.at(-1).id, tabId);
+    assert.equal(activated.at(-1).options.url, 'https://kinogo.my/films/53645-obitel-zla-219.html');
+    assert.equal((await dispatch(app(76), 'ping')).pageTimedOut, false);
+  } finally { Date.now = realNow; await dispatch(app(76), 'disconnect'); }
+});
+
+test('a private room never reuses a regular-window film and creates its tab in the room window', async () => {
+  const privateSender = { ...app(77), tab: { id: 77, windowId: 900, incognito: true } };
+  const before = nextTab;
+  await dispatch(privateSender, 'connect', sample());
+  assert.ok(nextTab > before);
+  assert.equal(createdOptions.at(-1).windowId, 900);
+  assert.equal(createdOptions.at(-1).url, 'https://kinogo.my/films/53645-obitel-zla-219.html');
+  await dispatch(privateSender, 'disconnect');
 });

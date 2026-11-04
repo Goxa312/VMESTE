@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Вместе — просмотр Киного",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Синхронизация выбранного HTML5-видео на Киного с открытой комнатой Вместе.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "scripting"],

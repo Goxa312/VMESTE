@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowRight, ChevronDown, FileVideo, FolderUp, Link2, Upload } from "lucide-react";
+import { ChevronDown, FileVideo, FolderOpen } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { holdFilm } from "@/lib/local-film";
 import { api, libraryKey, readLocal, rememberRoom, saveLocal } from "@/lib/client";
@@ -11,13 +11,13 @@ import { uploadFilm, type UploadTarget } from "@/lib/upload-client";
 import { Modal, Spinner } from "./ui";
 
 type Tab = "link" | "file";
-type Props = { mode: "create" | "add" | "change"; selected?: Video; initialTab?: Tab; uploadTarget?: UploadTarget;
+type Props = { mode: "create" | "add" | "change"; selected?: Video; initialTab?: Tab; initialUrl?: string; uploadTarget?: UploadTarget;
   onClose: () => void; onSaved?: (v: Video) => void; onFileRoom?: () => void; onChangeVideo?: (v: Partial<Video>) => Promise<void> };
-export function VideoForm({ mode, selected, initialTab, uploadTarget, onClose, onSaved, onChangeVideo, onFileRoom }: Props) {
+export function VideoForm({ mode, selected, initialTab, initialUrl, uploadTarget, onClose, onSaved, onChangeVideo, onFileRoom }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>(initialTab || ((selected?.sourceMode === "upload" || selected?.sourceMode === "local") ? "file" : "link"));
   const [name, setName] = useState(() => typeof window !== "undefined" ? readLocal("vm-name", "") : "");
-  const [title, setTitle] = useState(selected?.title || ""), [url, setUrl] = useState((selected?.sourceMode === "upload" || selected?.sourceMode === "local") ? "" : selected?.url || "");
+  const [title, setTitle] = useState(selected?.title || ""), [url, setUrl] = useState((selected?.sourceMode === "upload" || selected?.sourceMode === "local") ? "" : selected?.url || initialUrl || "");
   const [kind, setKind] = useState<Kind>(selected?.kind || "film"), [roomTitle, setRoomTitle] = useState("Киновечер с друзьями");
   const [format, setFormat] = useState<"auto" | "direct" | "page">(selected?.sourceMode === "direct" || selected?.sourceMode === "page" ? selected.sourceMode : "auto");
   const [file, setFile] = useState<File>(), [limit, setLimit] = useState<number>(), [dragging, setDragging] = useState(false);
@@ -70,29 +70,29 @@ export function VideoForm({ mode, selected, initialTab, uploadTarget, onClose, o
     } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Не удалось сохранить фильм."); }
     finally { if (!controller.signal.aborted) { setBusy(false); setProgress(null); } }
   }
-  return <Modal title={mode === "create" ? "Создать комнату" : mode === "add" ? "Добавить в библиотеку" : "Выбрать фильм"} caption={mode === "add" ? "Сохраните ссылку, чтобы вернуться к фильму позже." : "Выберите фильм. Друзьям понадобится только приглашение."} onClose={close}>
+  return <Modal title={mode === "create" ? "Создать комнату" : mode === "add" ? "Добавить в библиотеку" : "Выбрать фильм"} caption={mode === "add" ? "Сохраните ссылку, чтобы вернуться к фильму позже." : mode === "change" ? "Новый фильм появится у всех в этой комнате." : "После создания комнаты вы получите ссылку для друзей."} onClose={close}>
     <form onSubmit={submit} className="stack-form source-form">
       {mode !== "add" && <div className="source-tabs" role="group" aria-label="Источник фильма">
-        <button type="button" aria-pressed={tab === "link"} disabled={busy} onClick={() => { setTab("link"); setError(""); }}><Link2 size={18}/>По ссылке</button>
-        <button type="button" aria-pressed={tab === "file"} disabled={busy} onClick={() => { setTab("file"); setError(""); }}><FolderUp size={18}/>Загрузить файл</button></div>}
-      {tab === "link" ? <><label>Ссылка на фильм<div className="input-icon"><Link2 size={17}/><input type="url" required maxLength={4000} value={url} disabled={busy} onChange={e => setUrl(e.target.value)} placeholder="https://…" /></div></label>
-        <p className="field-hint">{url && linkMode(url) === "direct" ? "Этот адрес откроется в общем плеере." : "Вставьте страницу любого видеосайта или прямую ссылку на видео. Страницу можно показать друзьям из вкладки."}</p></> :
+        <button type="button" aria-pressed={tab === "link"} disabled={busy} onClick={() => { setTab("link"); setError(""); }}>По ссылке</button>
+        <button type="button" aria-pressed={tab === "file"} disabled={busy} onClick={() => { setTab("file"); setError(""); }}>С компьютера</button></div>}
+      {tab === "link" ? <><label>Ссылка на фильм<input type="url" required maxLength={4000} value={url} disabled={busy} onChange={e => setUrl(e.target.value)} placeholder="https://…" /></label>
+        <p className="field-hint">{url && linkMode(url) === "direct" ? "Этот адрес откроется в общем плеере." : "Прямая ссылка откроется в плеере. Страницу с фильмом можно показать из вкладки."}</p></> :
         <><input className="visually-hidden" type="file" ref={picker} accept=".mp4,.m4v,.webm,.mov" aria-label="Выбрать видеофайл" tabIndex={-1} onChange={e => choose(e.target.files?.[0])}/>
         <button type="button" disabled={busy} className={`file-drop ${dragging ? "dragging" : ""}`} onClick={() => picker.current?.click()}
           onDragOver={e => { e.preventDefault(); if (!busy) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={e => { e.preventDefault(); setDragging(false); if (!busy) choose(e.dataTransfer.files[0]); }}>
-          {file ? <FileVideo size={30}/> : <Upload size={30}/>}<strong>{file ? file.name : "Выберите файл или перетащите сюда"}</strong>
-          <small>{file ? fileSize(file.size) : `MP4, WebM, MOV${limit ? " · до " + fileSize(limit) : ""}`}</small></button>
+          {file ? <FileVideo size={22} aria-hidden="true"/> : <FolderOpen size={22} aria-hidden="true"/>}<span className="file-description"><strong>{file ? file.name : "Выбрать файл"}</strong><small>{file ? `${fileSize(file.size)} · Нажмите, чтобы заменить` : "Или перетащите видео сюда"}</small></span></button>
+        {!file && <p className="field-hint file-formats">MP4, WebM, MOV{limit ? ` · загрузка до ${fileSize(limit)}, более крупные файлы — из браузера` : ""}</p>}
         {liveFile && limit && <p className="field-hint" role="status">Файл больше лимита загрузки ({fileSize(limit)}). Вы можете показать его из своего браузера. Оставьте комнату открытой до конца просмотра.</p>}
         {progress !== null && <div className="upload-progress" role="status"><progress max={100} value={progress}/><span>Загружено {progress}%</span></div>}</>}
       <div className={mode === "create" ? "form-row" : ""}>{mode === "create" && <label>Ваше имя<input required disabled={busy} maxLength={24} value={name} onChange={e => setName(e.target.value)} placeholder="Как к вам обращаться?"/></label>}
         <label>Название фильма<input disabled={busy} maxLength={100} value={title} onChange={e => setTitle(e.target.value)} placeholder="Можно оставить пустым"/></label></div>
-      <details className="form-options"><summary>Дополнительные настройки <ChevronDown size={15}/></summary>
+      <details className="form-options"><summary>{mode === "create" ? "Настройки комнаты и фильма" : "Настройки фильма"} <ChevronDown size={15}/></summary>
         {mode === "create" && <label>Название комнаты<input maxLength={80} value={roomTitle} onChange={e => setRoomTitle(e.target.value)}/></label>}
         {tab === "link" && <label>Как открыть ссылку<select value={format} onChange={e => setFormat(e.target.value as typeof format)}><option value="auto">Определить автоматически</option><option value="direct">Прямой адрес видео</option><option value="page">Показ вкладки с сайтом</option></select></label>}
         <label>Раздел<select value={kind} onChange={e => setKind(e.target.value as Kind)}>{Object.entries(kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></details>
       {error && <p className="error" role="alert">{error}</p>}
-      <button className="button primary full" disabled={busy}>{busy ? <Spinner/> : <>{mode === "add" ? "Сохранить ссылку" : tab === "file" ? liveFile ? "Показать файл из браузера" : "Загрузить фильм" : mode === "create" ? "Создать комнату" : "Сменить фильм"}<ArrowRight size={17}/></>}</button>
+      <button className="button primary full" disabled={busy || (tab === "file" && !file)}>{busy ? <Spinner/> : <>{mode === "add" ? "Сохранить ссылку" : tab === "file" ? liveFile ? "Показать файл из браузера" : "Загрузить фильм" : mode === "create" ? "Создать комнату" : "Сменить фильм"}</>}</button>
       {busy && tab === "file" && <button className="text-button" type="button" onClick={close}>Отменить загрузку</button>}
-      {mode === "add" && onFileRoom && <button type="button" className="text-button" onClick={onFileRoom}><FolderUp size={15}/>Загрузить файл в комнату</button>}
+      {mode === "add" && onFileRoom && <button type="button" className="text-button" onClick={onFileRoom}><FolderOpen size={16}/>Загрузить файл в комнату</button>}
     </form></Modal>;
 }

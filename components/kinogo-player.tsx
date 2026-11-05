@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Check, ExternalLink, MonitorPlay, RefreshCw, Unplug } from "lucide-react";
+import { Check, ExternalLink, RefreshCw, Unplug } from "lucide-react";
 import { EXTENSION_VERSION, extensionRequest, needsExtensionUpdate } from "@/lib/kinogo-bridge";
 import { useKinogoExtension } from "@/hooks/use-kinogo-extension";
 import { playbackPosition, type RoomState } from "@/lib/shared";
@@ -56,7 +56,7 @@ export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRef
     finally { setBusy(false); }
   }
   return <section className="player kinogo-player" aria-label="Совместный просмотр Киного">
-    <MonitorPlay size={42}/><h2>Плеер «Вместе»</h2>
+    <h2>Плеер «Вместе»</h2>
     <p>{isHost ? "Подключите видео один раз. Друзья смогут смотреть его в этой комнате по приглашению." : "Когда ведущий подключит видео, плеер появится здесь автоматически."}</p>
     {isHost && <button className="button primary" onClick={onChooseSource}>Смотреть в комнате</button>}
     <details className="kinogo-external" open={extension.connected || undefined}><summary>Просмотр на Киного через расширение</summary>

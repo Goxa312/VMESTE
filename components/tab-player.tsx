@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ExternalLink, FolderUp, MonitorPlay, Radio, Square } from "lucide-react";
+import { ExternalLink, FolderOpen, Square } from "lucide-react";
 import { releaseFilm, takeFilm } from "@/lib/local-film";
 import { connectTab } from "@/lib/tab-stream";
 import type { RoomState } from "@/lib/shared";
@@ -82,11 +82,10 @@ export function TabPlayer({ room, token, host, hostOnline, connected, onAction, 
     {fromFile && host && fileUrl && <video className="live-video" ref={source} src={fileUrl} controls muted playsInline preload="auto" onError={() => setError("Браузер не может декодировать этот файл. Выберите MP4 или WebM с поддерживаемым кодеком.")}/>}
     {stream && !(fromFile && host) && <video className="live-video" ref={player} controls={!host} autoPlay muted playsInline />}
     <div className={stream ? "live-tools" : "live-intro"}>
-      {!stream && <span className="source-symbol"><MonitorPlay size={30}/></span>}
       <h2>{stream ? (fromFile ? "Показ файла" : "Показ вкладки") : host ? (fromFile ? "Показать свой файл" : "Показать фильм из вкладки") : room.shareId && hostOnline ? "Ведущий начал показ" : "Ждём фильм от ведущего"}</h2>
       {!stream && <p>{host ? fromFile ? "Фильм начнётся, когда подключится первый зритель. Управляйте воспроизведением здесь и оставьте комнату открытой." : "Откройте страницу с фильмом, запустите его и выберите эту вкладку для показа. Друзья увидят фильм здесь." : "Оставьте комнату открытой. Когда ведущий выберет вкладку, вы сможете присоединиться."}</p>}
-      {host && !local && fromFile && <><label className="button subtle file-picker"><FolderUp size={16}/>Выбрать файл<input type="file" accept="video/*,.mkv" onChange={e => { const chosen = e.target.files?.[0]; if (chosen) { setFilm(chosen); setError(""); } }}/></label><button className="button primary" disabled={!fileUrl || busy || !connected} onClick={() => void start()}>Начать показ файла</button></>}
-      {host && !local && !fromFile && <><div className="live-buttons"><a className="button subtle" href={room.videoUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={16}/>Открыть сайт</a><button className="button primary" disabled={busy || !connected} onClick={() => void start()}><Radio size={17}/>Показать вкладку</button></div>
+      {host && !local && fromFile && <><label className="button subtle file-picker"><FolderOpen size={17}/>Выбрать файл<input type="file" accept="video/*,.mkv" onChange={e => { const chosen = e.target.files?.[0]; if (chosen) { setFilm(chosen); setError(""); } }}/></label><button className="button primary" disabled={!fileUrl || busy || !connected} onClick={() => void start()}>Начать показ файла</button></>}
+      {host && !local && !fromFile && <><div className="live-buttons"><a className="button subtle" href={room.videoUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={16}/>Открыть сайт</a><button className="button primary" disabled={busy || !connected} onClick={() => void start()}>Показать вкладку</button></div>
         <label className="sound-option"><input type="checkbox" checked={audio} onChange={e => setAudio(e.target.checked)}/>Передавать звук вкладки</label></>}
       {host && local && <button className="button subtle" onClick={() => void stop()}><Square size={14}/>Завершить показ</button>}
       {!host && hostOnline && room.shareId && <button className={watch ? "text-button" : "button primary"} onClick={() => { setWatch(true); setIncoming(null); setRetry(r => r+1); }}>{watch ? "Переподключиться" : "Смотреть трансляцию"}</button>}

@@ -1,21 +1,21 @@
 "use client";
 import Link from "next/link";
-import { CheckCircle2, Download, ExternalLink, RefreshCw } from "lucide-react";
+import { CheckCircle2, Download, RefreshCw } from "lucide-react";
 import { useKinogoExtension } from "@/hooks/use-kinogo-extension";
 import { EXTENSION_VERSION, needsExtensionUpdate } from "@/lib/kinogo-bridge";
-import { Spinner } from "./ui";
+import { Logo, Spinner } from "./ui";
 
 export function ExtensionSetup() {
   const { extension, checking, reachable, check } = useKinogoExtension();
   const outdated = extension.installed && needsExtensionUpdate(extension.version);
-  return <main className="extension-setup"><Link className="brand" href="/">вместе.</Link>
-    <span className="eyebrow">КИНОГО · CHROME И EDGE</span><h1>Подключились — и смотрите</h1>
+  return <main className="extension-setup"><Logo/>
+    <span className="eyebrow">КИНОГО · CHROME И EDGE</span><h1>Расширение для Киного</h1>
     <p>Чтобы взять видеопоток из Киного для плеера комнаты, расширение нужно ведущему. Друзьям достаточно приглашения. Для просмотра в отдельных вкладках Киного расширение устанавливает каждый участник.</p>
     <section className={`extension-check ${reachable && !outdated ? "ready" : ""}`} aria-label="Проверка расширения">
       <div className="extension-check-heading">{checking && !reachable ? <Spinner/> : reachable ? <CheckCircle2 size={24}/> : <RefreshCw size={24}/>}<strong role="status" aria-live="polite">{checking && !reachable ? "Проверяем расширение…" : reachable ? outdated ? `Установлена версия ${extension.version} · есть обновление` : `Расширение ${extension.version} готово` : "Нет связи с расширением в этом браузере"}</strong></div>
       <p>{reachable && !outdated ? "Вернитесь в комнату, нажмите «Смотреть на Киного» и запустите фильм. Длинное видео подключится автоматически." : "Если расширение уже стоит, откройте его значок в панели Chrome и нажмите «Восстановить связь». Старую версию обновите по инструкции ниже."}</p>
       <button className="button subtle" disabled={checking} onClick={check}><RefreshCw size={16}/>Проверить ещё раз</button>
-      {reachable && !outdated && <Link className="button primary" href="/">Перейти к комнатам <ExternalLink size={16}/></Link>}
+      {reachable && !outdated && <Link className="button primary" href="/">Перейти к комнатам</Link>}
     </section>
     <a className="button primary" href={`/downloads/vmeste-kinogo-extension.zip?v=${EXTENSION_VERSION}`} download><Download size={17}/>{outdated ? "Скачать обновление" : "Скачать расширение"} {EXTENSION_VERSION}</a>
     <h2>Уже ставили из папки проекта?</h2>

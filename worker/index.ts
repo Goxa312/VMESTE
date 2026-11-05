@@ -1,3 +1,5 @@
+import { routeRelay } from "./room-relay";
+export { RoomRelay } from "./room-relay";
 import { cleanExpiredMedia } from "../lib/uploads";
 import handler from "vinext/server/fetch-handler";
 import { runWithConnectorBinding } from "../lib/connector-context";
@@ -6,6 +8,8 @@ import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 const worker = {
   async scheduled() { await cleanExpiredMedia(); },
   fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
+    const relay = /^\/api\/rooms\/([a-f0-9]{12})\/relay\/([a-f0-9]{32})$/.exec(new URL(request.url).pathname);
+    if (relay) return routeRelay(request, env, relay[1], relay[2]);
     let binding = ctx.props?.CONNECTORS;
     // Local preview emulates the same request-scoped capability. This branch and
     // the auxiliary service binding are absent from production builds.

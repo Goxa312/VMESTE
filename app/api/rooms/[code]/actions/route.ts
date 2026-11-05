@@ -1,5 +1,13 @@
 import { safe, body, str, db, json, snapshot, getRoom, member, videoInput, sourceMode, randomId, ApiError } from "@/lib/server";
+import { env } from "cloudflare:workers";
 import { directSourceError } from "@/lib/video-source";
+async function endRelay(code: string, session: string | null) {
+  if (!session || !env.ROOM_RELAY) return;
+  const ns = env.ROOM_RELAY;
+  try { await ns.get(ns.idFromName(code + ":" + session)).fetch("https://relay.internal/end", { method: "POST" }); }
+  catch { /* The relay also checks the authoritative room and expires automatically. */ }
+}
+
 export async function POST(req: Request, context: { params: Promise<{ code: string }> }) { return safe(async () => {
   const { code } = await context.params, input = await body(req);
   const room = await getRoom(code), me = await member(req, code), now = Date.now();
@@ -17,8 +25,9 @@ export async function POST(req: Request, context: { params: Promise<{ code: stri
     // Only the exact capture can end itself, independent of unrelated revisions.
     if (input.action === "share-stop") {
       if (typeof input.session !== "string" || !/^[a-f0-9]{32}$/.test(input.session) || typeof input.pageUrl !== "string") throw new ApiError("Некорректный сеанс.");
-      await db().prepare("UPDATE rooms SET share_id=NULL, playing=0, updated_at=?, revision=revision+1 WHERE id=? AND share_id=? AND video_url=?")
+      const stopped = await db().prepare("UPDATE rooms SET share_id=NULL, playing=0, updated_at=?, revision=revision+1 WHERE id=? AND share_id=? AND video_url=?")
         .bind(now, code, input.session, input.pageUrl).run();
+      if (stopped.meta.changes) await endRelay(code, input.session);
       return json(await snapshot(code, me.id));
     }
     if (input.revision !== room.revision) throw new ApiError("Состояние изменилось. Повторите действие.", 409);
@@ -47,6 +56,7 @@ export async function POST(req: Request, context: { params: Promise<{ code: stri
       result = await db().prepare("UPDATE rooms SET video_url = ?, video_title = ?, source_mode = ?, share_id = NULL, kind = ?, poster = ?, media_url = NULL, media_format = NULL, playing = 0, position = 0, updated_at = ?, revision = revision + 1 WHERE id = ? AND revision = ?").bind(v.url, v.title, v.sourceMode, v.kind, v.poster, now, code, room.revision).run();
     } else throw new ApiError("Неизвестное действие");
     if (!result.meta.changes) throw new ApiError("Состояние изменилось. Повторите действие.", 409);
+    if (input.action !== "control") await endRelay(code, room.share_id);
   }
   return json({ ...await snapshot(code, me.id), startedShare });
 }); }

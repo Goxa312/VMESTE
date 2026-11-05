@@ -5,6 +5,8 @@
   "compatibility_date": "2026-05-15",
   "compatibility_flags": ["nodejs_compat"],
   "triggers": { "crons": ["17 * * * *"] },
+  "durable_objects": { "bindings": [{ "name": "ROOM_RELAY", "class_name": "RoomRelay" }] },
+  "migrations": [{ "tag": "room-relay-v1", "new_sqlite_classes": ["RoomRelay"] }],
   "d1_databases": [
     {
       "binding": "DB",

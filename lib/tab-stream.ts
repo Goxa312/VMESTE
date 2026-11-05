@@ -1,4 +1,7 @@
 import { api, RequestError } from "./client";
+import { serveRoomRelay, watchRoomRelay } from "./tab-relay";
+
+type RoomConfig = RTCConfiguration & { roomRelay?: boolean };
 
 type PeerRow = { guest: string; attempt: string; offered: number; answer: string | null };
 type GuestRow = { offer: string | null; answered: number };
@@ -7,6 +10,8 @@ type Callbacks = {
   onStatus: (status: string) => void;
   onSessionChanged: () => Promise<unknown>;
   onConnected?: () => void;
+  preferRoomRelay?: boolean;
+  onRelaySource: (url: string | null) => void;
 };
 
 const pollInterval = 1150;
@@ -57,6 +62,7 @@ export function connectTab(code: string, session: string, token: string, stream:
   const send = (data: Record<string, unknown>) => api(base, token, data, undefined, signal);
   const peers = new Map<string, RTCPeerConnection>();
   let attempt = crypto.randomUUID(), previousAttempt: string | undefined;
+  let relayRequested = Boolean(callbacks.preferRoomRelay), servingRelay = false, relayAudience = false;
   let joined = false, joinSent = false, joinedAt = 0, lastBeat = 0, startedIce = 0, retries = 0;
 
   function closePeer(key: string) {
@@ -96,7 +102,7 @@ export function connectTab(code: string, session: string, token: string, stream:
     if (signal.aborted) return;
     const keys = new Set(rows.map(row => row.attempt));
     for (const key of peers.keys()) if (!keys.has(key)) closePeer(key);
-    if (!rows.length) callbacks.onStatus("Ждём подключения зрителя…");
+    if (!rows.length && !relayAudience) callbacks.onStatus("Ждём подключения зрителя…");
     const updates = await Promise.allSettled(rows.map(async row => {
       let pc = peers.get(row.attempt);
       const reset = () => send({ action: "reset", guest: row.guest, attempt: row.attempt });
@@ -133,10 +139,16 @@ export function connectTab(code: string, session: string, token: string, stream:
     for (const update of updates) if (update.status === "rejected") throw update.reason;
   }
 
-  function renewGuest(config: RTCConfiguration) {
+  function renewGuest(config: RoomConfig, iceFailed = false) {
     closePeer(attempt);
     callbacks.onStream(null);
-    if (++retries > 2) {
+    ++retries;
+    if (config.roomRelay && (iceFailed && !hasRelay(config) || retries > 2)) {
+      relayRequested = true;
+      callbacks.onStatus("Прямая связь не установилась. Подключаемся через комнату…");
+      return true;
+    }
+    if (retries > 2) {
       callbacks.onStatus(hasRelay(config)
         ? "Не удалось установить видеосвязь даже через ретранслятор. Попробуйте подключиться снова."
         : "Между вашими сетями не удалось передать видео. Попробуйте подключиться снова или попросите ведущего открыть файл в плеере комнаты.");
@@ -151,7 +163,7 @@ export function connectTab(code: string, session: string, token: string, stream:
     return true;
   }
 
-  async function guestStep(config: RTCConfiguration): Promise<boolean> {
+  async function guestStep(config: RoomConfig): Promise<boolean> {
     if (!joined) {
       joinSent = true;
       await send({ action: "join", attempt, previousAttempt });
@@ -171,7 +183,7 @@ export function connectTab(code: string, session: string, token: string, stream:
     }
     let pc = peers.get(attempt);
     if (pc?.connectionState === "failed" || (startedIce && Date.now() - startedIce > iceTimeout)) {
-      return renewGuest(config);
+      return renewGuest(config, true);
     }
     if (!pc) {
       if (row.answered) return renewGuest(config);
@@ -198,14 +210,30 @@ export function connectTab(code: string, session: string, token: string, stream:
   }
 
   async function run() {
-    let config: RTCConfiguration | undefined, errors = 0;
+    let config: RoomConfig | undefined, errors = 0;
     try {
       while (!signal.aborted) {
         try {
-          config ??= await get<RTCConfiguration>("&ice=1");
+          config ??= await get<RoomConfig>("&ice=1");
           if (signal.aborted) break;
-          if (stream) await hostStep(config, stream);
-          else if (!await guestStep(config)) break;
+          if (stream) {
+            if (config.roomRelay && !servingRelay) {
+              servingRelay = true;
+              serveRoomRelay(code, session, stream, signal, {
+                status: callbacks.onStatus, changed: callbacks.onSessionChanged,
+                audience: active => { relayAudience = active; if (active) callbacks.onConnected?.(); },
+              });
+            }
+            await hostStep(config, stream);
+          } else if (relayRequested) {
+            if (!config.roomRelay) { callbacks.onStatus("Передача через комнату недоступна на этом сервере. Нажмите «Переподключиться» для прямой связи."); break; }
+            closePeer(attempt);
+            callbacks.onStream(null);
+            if (joinSent) { joinSent = false; void api(base, token, { action: "leave", attempt }).catch(() => {}); }
+            watchRoomRelay(code, session, signal, { status: callbacks.onStatus, source: callbacks.onRelaySource, changed: callbacks.onSessionChanged });
+            if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
+            break;
+          } else if (!await guestStep(config)) break;
           errors = 0;
         } catch (error) {
           if (signal.aborted) break;

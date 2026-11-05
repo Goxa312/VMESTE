@@ -15,6 +15,13 @@
       "when": 1793872971109,
       "tag": "0001_room_player_source",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793908861394,
+      "tag": "0002_shared_cinema",
+      "breakpoints": true
     }
   ]
 }

@@ -46,11 +46,12 @@ check((await request('/api/library', { token: keyA })).body.videos.length === 0,
 check((await request('/api/rooms', { data: { ...source, url: 'javascript:alert(1)' } })).status === 400, 'unsafe video URL schemes are rejected');
 const pageSource = { ...source, url: 'https://example.com/films/movie.html?download=movie.mp4' };
 const invalidRoom = await request('/api/rooms', { data: pageSource });
-check(invalidRoom.status === 400 && invalidRoom.body.error.includes('страницу сайта'), 'HTML page URLs are rejected with a useful explanation before creating a room');
-check((await request('/api/library', { token: keyA, data: pageSource })).status === 400, 'HTML page URLs cannot be saved in the library');
-const current = await request(path, { token: host });
-check((await request(path + '/actions', { token: host, data: { ...pageSource, action: 'video', revision: current.body.room.revision } })).status === 400, 'changing a room to an HTML page is rejected');
-check((await request(path, { token: host })).body.room.videoUrl === source.url, 'invalid replacement preserves the current video');
+check(invalidRoom.status === 201 && invalidRoom.body.room.sourceMode === 'page', 'ordinary site pages create a room for tab sharing');
+check((await request('/api/library', { token: keyA, data: pageSource })).status === 201, 'site pages can be saved in the library');
+let current = await request(path, { token: host });
+check((await request(path + '/actions', { token: host, data: { ...pageSource, action: 'video', revision: current.body.room.revision } })).status === 200, 'host can switch to a site page');
+current = await request(path, { token: host });
+check(current.body.room.videoUrl === pageSource.url, 'switching to a page preserves its address');
 const directUrl = 'https://example.com/stream/123?signature=example';
 const direct = await request('/api/library', { token: keyA, data: { ...source, url: directUrl } });
 check(direct.status === 201 && direct.body.video.url === directUrl, 'direct media endpoints without an extension and with query parameters remain allowed');

@@ -1,39 +1,98 @@
 "use client";
-import { useState, type FormEvent } from "react";
-import { ArrowRight, Link2 } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowRight, ChevronDown, FileVideo, FolderUp, Link2, Upload } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { holdFilm } from "@/lib/local-film";
 import { api, libraryKey, readLocal, rememberRoom, saveLocal } from "@/lib/client";
 import { demos, kinds, type Kind, type Snapshot, type Video } from "@/lib/shared";
-import { videoUrlError } from "@/lib/video-source";
+import { directSourceError, linkMode, videoUrlError } from "@/lib/video-source";
+import { fileSize, videoMime } from "@/lib/upload-format";
+import { uploadFilm, type UploadTarget } from "@/lib/upload-client";
 import { Modal, Spinner } from "./ui";
-export function VideoForm({ mode, selected, onClose, onSaved, onChangeVideo }: { mode: "create" | "add" | "change"; selected?: Video; onClose: () => void; onSaved?: (v: Video) => void; onChangeVideo?: (v: Partial<Video>) => Promise<void> }) {
+
+type Tab = "link" | "file";
+type Props = { mode: "create" | "add" | "change"; selected?: Video; initialTab?: Tab; uploadTarget?: UploadTarget;
+  onClose: () => void; onSaved?: (v: Video) => void; onFileRoom?: () => void; onChangeVideo?: (v: Partial<Video>) => Promise<void> };
+export function VideoForm({ mode, selected, initialTab, uploadTarget, onClose, onSaved, onChangeVideo, onFileRoom }: Props) {
+  const router = useRouter();
+  const [tab, setTab] = useState<Tab>(initialTab || ((selected?.sourceMode === "upload" || selected?.sourceMode === "local") ? "file" : "link"));
   const [name, setName] = useState(() => typeof window !== "undefined" ? readLocal("vm-name", "") : "");
-  const [title, setTitle] = useState(selected?.title || ""), [url, setUrl] = useState(selected?.url || ""), [kind, setKind] = useState<Kind>(selected?.kind || "film"), [roomTitle, setRoomTitle] = useState("Киновечер с друзьями");
-  const [busy, setBusy] = useState(false), [error, setError] = useState("");
-  async function submit(e: FormEvent) { e.preventDefault();
-    const urlError = videoUrlError(url);
-    if (urlError) { setError(urlError); return; }
-    setBusy(true); setError("");
-    try {
-      const v = { title, url, kind, poster: selected?.url === url ? selected.poster : demos.find(d => d.url === url)?.poster || "" };
-      if (mode === "create") {
-        const result = await api<Snapshot & { token: string }>("/api/rooms", undefined, { ...v, name, roomTitle });
-        saveLocal("vm-name", name); rememberRoom(result); window.location.href = `/room/${result.room.id}`;
-      } else if (mode === "add") { const result = await api<{ video: Video }>("/api/library", libraryKey(), v); onSaved?.(result.video); onClose(); }
-      else { await onChangeVideo?.(v); onClose(); }
-    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось сохранить"); setBusy(false); }
+  const [title, setTitle] = useState(selected?.title || ""), [url, setUrl] = useState((selected?.sourceMode === "upload" || selected?.sourceMode === "local") ? "" : selected?.url || "");
+  const [kind, setKind] = useState<Kind>(selected?.kind || "film"), [roomTitle, setRoomTitle] = useState("Киновечер с друзьями");
+  const [format, setFormat] = useState<"auto" | "direct" | "page">(selected?.sourceMode === "direct" || selected?.sourceMode === "page" ? selected.sourceMode : "auto");
+  const [file, setFile] = useState<File>(), [limit, setLimit] = useState<number>(), [dragging, setDragging] = useState(false);
+  const [busy, setBusy] = useState(false), [error, setError] = useState(""), [progress, setProgress] = useState<number | null>(null);
+  const abort = useRef<AbortController | null>(null), created = useRef<UploadTarget | null>(null), picker = useRef<HTMLInputElement>(null);
+  useEffect(() => { const controller = new AbortController();
+    if (mode !== "add") void fetch("/api/media-options", { signal: controller.signal }).then(r => r.json() as Promise<{ maxSize: number }>).then(r => setLimit(r.maxSize)).catch(() => {});
+    return () => { controller.abort(); abort.current?.abort(); };
+  }, [mode]);
+  const liveFile = !!file && !!limit && file.size > limit;
+  function choose(file?: File) {
+    if (!file) return;
+    setError(""); setFile(undefined);
+    if (!videoMime(file.name)) { setError("Выберите видео в формате MP4, WebM или MOV."); return; }
+    setFile(file); setTitle(file.name.replace(/\.[^.]+$/, "").slice(0, 100));
   }
-  return <Modal title={mode === "create" ? "Ваш личный кинозал" : mode === "add" ? "Добавить в библиотеку" : "Что смотрим дальше?"} caption={mode === "create" ? "Выберите видео и отправьте друзьям приглашение." : "Вставьте ссылку на фильм с kinogo.my или на MP4, WebM, HLS."} onClose={onClose}>
-    <form onSubmit={submit} className="stack-form">
-      {mode === "create" && <div className="form-row"><label>Ваше имя<input autoFocus required maxLength={24} value={name} onChange={e => setName(e.target.value)} placeholder="Как вас зовут?" /></label><label>Название комнаты<input required maxLength={80} value={roomTitle} onChange={e => setRoomTitle(e.target.value)} /></label></div>}
-      <label>Название видео<input autoFocus={mode !== "create"} required maxLength={100} value={title} onChange={e => setTitle(e.target.value)} placeholder="Например, любимый фильм" /></label>
-      <label>Ссылка на видео или страницу Киного<div className="input-icon"><Link2 size={17}/><input type="url" required maxLength={4000} value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com/movie.mp4" /></div></label>
-      <p className="field-hint">Прямое видео откроется в комнате. Для страницы Киного ведущий сможет подключить видеопоток кнопкой «Смотреть в комнате».</p>
-      <label>Раздел<select value={kind} onChange={e => setKind(e.target.value as Kind)}>{Object.entries(kinds).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label>
-      {(mode === "change" || (!selected && mode === "create")) && <button className="demo-pick" type="button" disabled={busy} onClick={() => { setTitle(demos[0].title); setUrl(demos[0].url); setKind("film"); setError(""); }}>Нет ссылки под рукой? <span>Включить демофильм →</span></button>}
+  function close() { abort.current?.abort(); onClose(); }
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    const sourceMode = tab === "file" ? liveFile ? "local" : "upload" : format === "auto" ? linkMode(url.trim()) : format;
+    const invalid = tab === "file" ? !file ? "Выберите фильм с компьютера." : null :
+      sourceMode === "direct" ? directSourceError(url.trim()) : videoUrlError(url.trim());
+    if (invalid) { setError(invalid); return; }
+    const videoTitle = title.trim() || (tab === "link" ? new URL(url).hostname : "Мой фильм");
+    const video = { title: videoTitle, url: tab === "file" ? "" : url.trim(), kind, sourceMode, poster: tab === "link" ? demos.find(d => d.url === url)?.poster || selected?.poster && selected.url === url && selected.poster || "" : "" } as const;
+    setBusy(true); setError(""); const controller = new AbortController(); abort.current = controller;
+    try {
+      const reusingRoom = !!created.current;
+      let target = uploadTarget || created.current;
+      if (mode === "create" && !created.current) {
+        const result = await api<Snapshot & { token: string }>("/api/rooms", undefined, { ...video, name, roomTitle });
+        saveLocal("vm-name", name); rememberRoom(result);
+        target = created.current = { code: result.room.id, token: result.token, revision: result.room.revision };
+      }
+      if (liveFile && tab === "file" && file && target) {
+        holdFilm(target.code, file);
+        if (mode === "change") await onChangeVideo?.(video);
+        else if (reusingRoom) await api(`/api/rooms/${target.code}/actions`, target.token, { ...video, action: "video", revision: target.revision });
+      } else if (tab === "file" && file && target) {
+        setProgress(0); await uploadFilm(target, file, videoTitle, controller.signal, setProgress);
+      } else if (mode === "add") {
+        const result = await api<{ video: Video }>("/api/library", libraryKey(), video); onSaved?.(result.video);
+      } else if (mode === "change") await onChangeVideo?.(video);
+      else if (mode === "create" && reusingRoom && !controller.signal.aborted && target) {
+        await api(`/api/rooms/${target.code}/actions`, target.token, { ...video, action: "video", revision: target.revision });
+      }
+      if (controller.signal.aborted) return;
+      if (mode === "create" && target) { if (liveFile) router.push("/room/" + target.code); else window.location.assign("/room/" + target.code); } else onClose();
+    } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Не удалось сохранить фильм."); }
+    finally { if (!controller.signal.aborted) { setBusy(false); setProgress(null); } }
+  }
+  return <Modal title={mode === "create" ? "Создать комнату" : mode === "add" ? "Добавить в библиотеку" : "Выбрать фильм"} caption={mode === "add" ? "Сохраните ссылку, чтобы вернуться к фильму позже." : "Выберите фильм. Друзьям понадобится только приглашение."} onClose={close}>
+    <form onSubmit={submit} className="stack-form source-form">
+      {mode !== "add" && <div className="source-tabs" role="group" aria-label="Источник фильма">
+        <button type="button" aria-pressed={tab === "link"} disabled={busy} onClick={() => { setTab("link"); setError(""); }}><Link2 size={18}/>По ссылке</button>
+        <button type="button" aria-pressed={tab === "file"} disabled={busy} onClick={() => { setTab("file"); setError(""); }}><FolderUp size={18}/>Загрузить файл</button></div>}
+      {tab === "link" ? <><label>Ссылка на фильм<div className="input-icon"><Link2 size={17}/><input type="url" required maxLength={4000} value={url} disabled={busy} onChange={e => setUrl(e.target.value)} placeholder="https://…" /></div></label>
+        <p className="field-hint">{url && linkMode(url) === "direct" ? "Этот адрес откроется в общем плеере." : "Вставьте страницу любого видеосайта или прямую ссылку на видео. Страницу можно показать друзьям из вкладки."}</p></> :
+        <><input className="visually-hidden" type="file" ref={picker} accept=".mp4,.m4v,.webm,.mov" aria-label="Выбрать видеофайл" tabIndex={-1} onChange={e => choose(e.target.files?.[0])}/>
+        <button type="button" disabled={busy} className={`file-drop ${dragging ? "dragging" : ""}`} onClick={() => picker.current?.click()}
+          onDragOver={e => { e.preventDefault(); if (!busy) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={e => { e.preventDefault(); setDragging(false); if (!busy) choose(e.dataTransfer.files[0]); }}>
+          {file ? <FileVideo size={30}/> : <Upload size={30}/>}<strong>{file ? file.name : "Выберите файл или перетащите сюда"}</strong>
+          <small>{file ? fileSize(file.size) : `MP4, WebM, MOV${limit ? " · до " + fileSize(limit) : ""}`}</small></button>
+        {liveFile && limit && <p className="field-hint" role="status">Файл больше лимита загрузки ({fileSize(limit)}). Вы можете показать его из своего браузера. Оставьте комнату открытой до конца просмотра.</p>}
+        {progress !== null && <div className="upload-progress" role="status"><progress max={100} value={progress}/><span>Загружено {progress}%</span></div>}</>}
+      <div className={mode === "create" ? "form-row" : ""}>{mode === "create" && <label>Ваше имя<input required disabled={busy} maxLength={24} value={name} onChange={e => setName(e.target.value)} placeholder="Как к вам обращаться?"/></label>}
+        <label>Название фильма<input disabled={busy} maxLength={100} value={title} onChange={e => setTitle(e.target.value)} placeholder="Можно оставить пустым"/></label></div>
+      <details className="form-options"><summary>Дополнительные настройки <ChevronDown size={15}/></summary>
+        {mode === "create" && <label>Название комнаты<input maxLength={80} value={roomTitle} onChange={e => setRoomTitle(e.target.value)}/></label>}
+        {tab === "link" && <label>Как открыть ссылку<select value={format} onChange={e => setFormat(e.target.value as typeof format)}><option value="auto">Определить автоматически</option><option value="direct">Прямой адрес видео</option><option value="page">Показ вкладки с сайтом</option></select></label>}
+        <label>Раздел<select value={kind} onChange={e => setKind(e.target.value as Kind)}>{Object.entries(kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></details>
       {error && <p className="error" role="alert">{error}</p>}
-      <button className="button primary full" disabled={busy}>{busy ? <Spinner/> : <>{mode === "create" ? "Создать комнату" : mode === "add" ? "Сохранить видео" : "Сменить видео"}<ArrowRight size={18}/></>}</button>
-      {mode === "create" && <p className="form-foot">До 12 человек · Комната доступна 7 дней</p>}
-      {mode === "add" && <p className="form-foot">Доступ к библиотеке привязан к этому браузеру.</p>}
-    </form>
-  </Modal>;
+      <button className="button primary full" disabled={busy}>{busy ? <Spinner/> : <>{mode === "add" ? "Сохранить ссылку" : tab === "file" ? liveFile ? "Показать файл из браузера" : "Загрузить фильм" : mode === "create" ? "Создать комнату" : "Сменить фильм"}<ArrowRight size={17}/></>}</button>
+      {busy && tab === "file" && <button className="text-button" type="button" onClick={close}>Отменить загрузку</button>}
+      {mode === "add" && onFileRoom && <button type="button" className="text-button" onClick={onFileRoom}><FolderUp size={15}/>Загрузить файл в комнату</button>}
+    </form></Modal>;
 }

@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+const base = process.env.TEST_BASE_URL || "http://127.0.0.1:5173";
+const json = async (path, token, data, method) => {
+  const res = await fetch(base + path, { method: method || (data ? "POST" : "GET"), headers: { ...(token && { Authorization: "Bearer " + token }), ...(data && { "Content-Type": "application/json" }) }, body: data ? JSON.stringify(data) : undefined });
+  return { status: res.status, body: await res.json(), cookie: res.headers.get("set-cookie")?.split(";")[0] };
+};
+const ok = (condition, text) => { assert.ok(condition, text); console.log("PASS", text); };
+const created = await json("/api/rooms", null, { name: "Host", title: "Test", url: "https://example.org/watch/item" });
+assert.equal(created.status,201);
+const room = "/api/rooms/" + created.body.room.id, host = created.body.token;
+const guest = await json(room, null, { name:"Guest" }), visitor = guest.body.token;
+const files = room + "/uploads", MiB = 1024 * 1024, limit = (await json("/api/media-options")).body.maxSize;
+const chunk = limit > 32 * MiB ? 8 * MiB : MiB;
+const bytes = new Uint8Array(chunk+111); bytes.set([0,0,0,24,102,116,121,112]); bytes.set([13,15,17], chunk-1);
+const info = { fileName:"study.mp4", title:"Study", size:bytes.length, revision:0 };
+ok((await json(files, visitor, info)).status===403, "guest cannot upload");
+const start = await json(files, host, info);
+ok(start.status===201 && start.body.chunkSize===chunk, "server reserves storage with its actual upload limit");
+const file = files + "/" + start.body.id;
+async function put(part,data) {
+  return fetch(base + file + "?part=" + part, { method:"PUT", headers:{Authorization:"Bearer "+host}, body:data });
+}
+ok((await put(2,bytes.subarray(chunk))).ok && (await put(2,bytes.subarray(chunk))).ok, "out-of-order parts can be retried");
+ok((await json(file, host, {})).status===409, "incomplete upload cannot replace current film");
+const shortPart = await put(1,bytes.subarray(0,16384));
+const fullPart = await put(1,bytes.subarray(0,chunk));
+if (shortPart.status !== 422 || !fullPart.ok) throw new Error(`Part sizes: short=${shortPart.status}, full=${fullPart.status}`);
+ok(true, "part size is enforced");
+ok((await json(file, host, {})).status===200 && (await json(file, host, {})).status===200, "completion safely publishes exactly once");
+ok((await fetch(base+file)).status===401, "unauthenticated playback is denied");
+const r=await fetch(base+file,{headers:{Cookie:guest.cookie,Range:`bytes=${chunk-1}-${chunk+1}`}});
+ok(r.status===206 && [13,15,17].join()===new Uint8Array(await r.arrayBuffer()).join(), "guest seeks across stored parts");
+ok((await fetch(base+file,{method:"HEAD",headers:{Cookie:guest.cookie}})).headers.get("content-length")===String(bytes.length), "HEAD returns the movie size");
+ok((await fetch(base+file,{headers:{Cookie:guest.cookie,Range:"bytes=99999999999-"}})).status===416, "unsatisfiable range is rejected");
+const snap = (await json(room, visitor)).body.room;
+ok(snap.videoUrl===file && snap.sourceMode==="upload" && snap.revision===1, "late guests see the same uploaded movie");
+const page=(await json(room+"/actions",host,{action:"video",title:"Another site",url:"https://example.net/movie.html",revision:1})).body.room;
+ok((await fetch(base+file,{headers:{Cookie:guest.cookie}})).status===404,"replaced file is no longer playable");
+const share=await json(room+"/actions",host,{action:"share-start",pageUrl:page.videoUrl,revision:page.revision});
+const signaling=room+"/signal?session="+share.body.room.shareId, attempt=randomUUID(), guestId=guest.body.me;
+ok((await json(signaling,visitor,{action:"join",attempt})).status===200 && (await json(signaling,host)).body[0].guest===guestId,"session accepts the invited guest");
+ok((await json(signaling,visitor,{action:"offer",guest:guestId,attempt,sdp:"v=0"})).status===403,"guest cannot impersonate the broadcasting host");
+ok((await json(signaling,host,{action:"offer",guest:guestId,attempt,sdp:"v=0 example"})).status===200 && (await json(signaling+"&attempt="+attempt,visitor)).body.offer==="v=0 example","guest receives its own offer");
+ok((await json(signaling,visitor,{action:"answer",attempt,sdp:"v=0 response"})).status===200 && (await json(signaling,host)).body[0].answer==="v=0 response","host receives the answer");
+await json(room+"/actions",host,{action:"share-stop",session:share.body.room.shareId,pageUrl:page.videoUrl,revision:share.body.room.revision});
+ok((await json(signaling,visitor)).status===409,"old signaling session is invalidated on stop");

@@ -7,12 +7,12 @@ import { attachRoomMedia } from "@/lib/media-playback";
 import { Spinner } from "./ui";
 export function Player({ room, isHost, offset, busy, connected, onControl, onChangeVideo }: { room: RoomState; isHost: boolean; offset: number; busy: boolean; connected: boolean; onControl: (playing: boolean, position: number) => Promise<void>; onChangeVideo: () => void }) {
   const video = useRef<HTMLVideoElement>(null), shell = useRef<HTMLDivElement>(null);
-  const [ready, setReady] = useState(false), [duration, setDuration] = useState(0), [time, setTime] = useState(0), [volume, setVolume] = useState(.8), [muted, setMuted] = useState(false), [error, setError] = useState(""), [buffering, setBuffering] = useState(false), [retry, setRetry] = useState(0), [blocked, setBlocked] = useState(false);
+  const [ready, setReady] = useState(false), [duration, setDuration] = useState(0), [time, setTime] = useState(0), [volume, setVolume] = useState(.8), [muted, setMuted] = useState(true), [error, setError] = useState(""), [buffering, setBuffering] = useState(false), [retry, setRetry] = useState(0), [blocked, setBlocked] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null); const scrubbing = useRef(false);
   const autoplayBlocked = useRef(false);
   const sourceUrl = room.nativeSource?.url ?? room.videoUrl;
   const sourceFormat = room.nativeSource?.format ?? mediaFormat(sourceUrl);
-  const sourceError = room.nativeSource ? directSourceError(sourceUrl) : videoUrlError(sourceUrl);
+  const sourceError = room.sourceMode === "upload" ? null : room.nativeSource ? directSourceError(sourceUrl) : videoUrlError(sourceUrl);
   const playerError = sourceError || error;
   const stateRef = useRef({ room, offset, ready, busy }); stateRef.current = { room, offset, ready, busy };
   useEffect(() => {

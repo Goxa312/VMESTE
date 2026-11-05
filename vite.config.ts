@@ -68,6 +68,7 @@ export default defineConfig(async ({ command }) => {
             Object.assign(config, localBindingConfig);
             config.services = [{ binding: "CONNECTORS", service: "sites-connector-preview", entrypoint: "ConnectorPreview" }];
           } else {
+            if (process.env.VMESTE_R2_BUCKET) config.r2_buckets = [{ binding: "BUCKET", bucket_name: process.env.VMESTE_R2_BUCKET }];
             config.d1_databases = config.d1_databases?.map(database => ({
               ...database,
               migrations_dir: resolve(database.migrations_dir || "drizzle"),

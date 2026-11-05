@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { extensionRequest, needsExtensionUpdate } from "@/lib/kinogo-bridge";
 import { attachRoomMedia } from "@/lib/media-playback";
 import { formatTime, playbackPosition, type RoomState } from "@/lib/shared";
-import { directSourceError, mediaFormat, type DirectSource } from "@/lib/video-source";
+import { directSourceError, isKinogoPage, mediaFormat, type DirectSource } from "@/lib/video-source";
 import { Modal, Spinner } from "./ui";
 
 function Preview({ source, onReady, onTryAnother }: { source: DirectSource; onReady: (ready: boolean) => void; onTryAnother?: () => void }) {
@@ -115,9 +115,9 @@ export function RoomSourceDialog({ room, offset, connected, onClose, onApply }: 
   }
   const previewIndex = candidates.findIndex(item => item.url === preview?.url);
   const nextCandidate = candidates.length > 1 && previewIndex >= 0 ? candidates[(previewIndex + 1) % candidates.length] : undefined;
-  return <Modal title="Смотреть в комнате" caption="Проверьте фильм и откройте его для всех участников. Друзьям понадобится только ссылка на комнату." onClose={onClose}>
+  return <Modal title="Смотреть в комнате" caption="Проверьте кадр фильма перед тем, как включить общий плеер." onClose={onClose}>
     <div className="stack-form">
-      {!room.nativeSource && <div className="source-import"><button className="button subtle" disabled={working || !connected} onClick={() => void importFilm()}>Взять из Киного</button>
+      {!room.nativeSource && isKinogoPage(room.videoUrl) && <div className="source-import"><button className="button subtle" disabled={working || !connected} onClick={() => void importFilm()}>Взять из Киного</button>
         <small>Использует запущенный фильм и <a href="/kinogo-extension" target="_blank" rel="noreferrer">расширение ведущего</a>. Прямую ссылку можно вставить ниже.</small></div>}
       {candidates.length > 1 && <label>Найденные потоки<select value={candidates.findIndex(x => x.url === url)} onChange={e => { const item = candidates[Number(e.target.value)]; if (item) select(item); }}>
         <option value={-1}>Выберите поток</option>{candidates.map((item, index) => <option key={item.url} value={index}>{index + 1}. {item.format === "hls" ? "HLS" : "Видео"} · {new URL(item.url).hostname} · {new URL(item.url).pathname.split("/").pop()?.slice(0, 48)}</option>)}</select></label>}
@@ -131,7 +131,7 @@ export function RoomSourceDialog({ room, offset, connected, onClose, onApply }: 
         onTryAnother={nextCandidate ? () => select(nextCandidate) : undefined}/>}
       {notice && <p className="source-notice" role="status">{notice}</p>}
       <button className="button primary full" disabled={!ready || !preview || working || !connected} onClick={() => void apply(preview)}>{working ? <Spinner/> : "Открыть для всех"}</button>
-      {room.nativeSource && <button className="text-button" disabled={working || !connected} onClick={() => void apply(null)}>Вернуться к просмотру на Киного</button>}
+      {room.nativeSource && <button className="text-button" disabled={working || !connected} onClick={() => void apply(null)}>Вернуться к показу страницы</button>}
     </div>
   </Modal>;
 }

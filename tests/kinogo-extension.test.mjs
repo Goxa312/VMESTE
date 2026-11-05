@@ -15,7 +15,7 @@ test('ordinary Kinogo film URLs are accepted, lookalikes and home pages are not'
   for (const bad of ['https://kinogo.my.evil.test/films/123-a.html', 'https://kinogo.my/', 'https://kinogo.my:444/123-a.html', 'https://x:pass@kinogo.my/123-a.html']) {
     assert.equal(isKinogoPage(bad), false); assert.equal(movieId(bad), null);
   }
-  assert.ok(videoUrlError('https://example.com/movie.html'));
+  assert.equal(videoUrlError('https://example.com/movie.html'), null);
   assert.equal(videoUrlError('https://example.com/video.mp4?signature=123'), null);
 });
 test('only top-level room pages on the configured origin can connect', () => {

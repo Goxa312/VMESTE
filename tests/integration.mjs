@@ -63,4 +63,31 @@ check(kinogoAdd.status === 201 && kinogoAdd.body.video.url === kinogoSource.url,
 await request('/api/library', { token: keyA, method: 'DELETE', data: { id: kinogoAdd.body.video.id } });
 const changeToKinogo = await request(path + '/actions', { token: host, data: { ...kinogoSource, action: 'video', revision: current.body.room.revision } });
 check(changeToKinogo.status === 200 && changeToKinogo.body.room.videoUrl === kinogoSource.url && !changeToKinogo.body.room.playing, 'host can switch an existing room to a Kinogo page');
+const nativePath = '/api/rooms/' + kinogoRoom.body.room.id;
+const nativeHost = kinogoRoom.body.token;
+const nativeGuest = (await request(nativePath, { data: { name: 'Player guest' } })).body.token;
+const switchPlayer = (token, data) => request(nativePath + '/actions', { token, data: {
+  action: 'player-source', pageUrl: kinogoSource.url, previousUrl: null, url: source.url, format: 'file', revision: 0, ...data
+} });
+check((await switchPlayer(nativeGuest, {})).status === 403, 'only the host can publish a room stream');
+check((await switchPlayer(nativeHost, { url: kinogoSource.url })).status === 400, 'the film page itself is never published as media');
+check((await switchPlayer(nativeHost, { url: 'blob:https://kinogo.my/local' })).status === 400, 'a tab-local blob cannot replace a room stream');
+check((await switchPlayer(nativeHost, { pageUrl: 'https://kinogo.my/films/9-other.html' })).status === 409, 'a stale preview cannot switch another film');
+const switched = await switchPlayer(nativeHost, {});
+check(switched.status === 200 && switched.body.room.videoUrl === kinogoSource.url, 'native player keeps the original Kinogo page and invitation');
+check((await request(nativePath, { token: nativeGuest })).body.room.nativeSource.url === source.url, 'guest independently receives the host media URL');
+await request(nativePath + '/actions', { token: nativeHost, data: { action: 'control', playing: true, position: 15, revision: 1 } });
+const watching = (await request(nativePath, { token: nativeGuest })).body;
+check(watching.room.playing && playbackPosition(watching.room, watching.serverTime) >= 15, 'guest receives play and seek in the native player');
+await request(nativePath + '/actions', { token: nativeHost, data: { action: 'control', playing: false, position: 42, revision: 2 } });
+const nativeLate = (await request(nativePath, { data: { name: 'Late player guest' } })).body.room;
+check(!nativeLate.playing && nativeLate.position === 42 && nativeLate.nativeSource.url === source.url, 'late viewer joins the same paused film at the same position');
+const hls = await switchPlayer(nativeHost, { previousUrl: source.url, revision: 3, url: directUrl, format: 'hls' });
+check(hls.status === 200 && hls.body.room.position === 42 && hls.body.room.nativeSource.format === 'hls', 'renewing a stream preserves position and supports extensionless HLS');
+check((await switchPlayer(nativeHost, { previousUrl: source.url, revision: 4 })).status === 409, 'replaced stream cannot be overwritten from a stale preview');
+const back = await switchPlayer(nativeHost, { previousUrl: directUrl, revision: 4, url: null });
+check(back.status === 200 && back.body.room.nativeSource === null && back.body.room.position === 42, 'host can return to the original film at the same position');
+await switchPlayer(nativeHost, { revision: 5 });
+const nextFilm = await request(nativePath + '/actions', { token: nativeHost, data: { ...source, action: 'video', revision: 6 } });
+check(nextFilm.status === 200 && !nextFilm.body.room.nativeSource && nextFilm.body.room.position === 0, 'changing films clears the previous native source');
 console.log(`\n${passed} integration checks passed.`);

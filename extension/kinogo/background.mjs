@@ -58,13 +58,13 @@ function refreshRoom(key, session) {
     .catch(() => {})
     .finally(() => refreshing.delete(session));
 }
-async function stop(key) {
+async function stop(key, forRoomPlayer = false) {
   const session = sessions[key];
   if (!session) return;
   delete sessions[key];
   await save();
   await recovery.cancel(key);
-  void send(session.mediaTabId, { channel: 'vmeste-extension', type: 'stop' });
+  void send(session.mediaTabId, { channel: 'vmeste-extension', type: 'stop', pause: forRoomPlayer });
 }
 async function appTabs() {
   const tabs = await chrome.tabs.query({ url: chrome.runtime.getManifest().content_scripts[0].matches });
@@ -80,7 +80,7 @@ async function repairTabs() {
 function wakeMedia(tabId) {
   // Existing film tabs may predate installation. Injection is idempotent.
   void chrome.scripting.executeScript({ target: { tabId, allFrames: true },
-    files: ['media-controller.js', 'media-selection.js', 'media.js'] }).catch(() => {});
+    files: ['media-controller.js', 'media-selection.js', 'media-sources.js', 'media.js'] }).catch(() => {});
   void send(tabId, { channel: 'vmeste-extension', type: 'wake' }, undefined, 1000);
 }
 async function popup(message) {
@@ -129,7 +129,33 @@ async function handle(message, sender) {
   if (roomId) {
     const key = String(sender.tab.id);
     if (message.type === 'ping') return status(sessions[key]);
-    if (message.type === 'disconnect') { await stop(key); return status(null); }
+    if (message.type === 'disconnect') { await stop(key, message.data?.forRoomPlayer === true); return status(null); }
+    if (message.type === 'media-sources') {
+      const session = sessions[key];
+      if (!session || session.roomId !== roomId || session.state.sourceUrl !== message.data?.sourceUrl ||
+          !session.state.isHost || !Number.isInteger(session.frameId)) {
+        return { ...status(session), error: 'Откройте Киного из этой комнаты и запустите фильм до появления «Вместе · ведущий».' };
+      }
+      const frameId = session.frameId;
+      const tab = await chrome.tabs.get(session.mediaTabId).catch(() => null);
+      if (movieId(tab?.pendingUrl || tab?.url) !== movieId(session.state.sourceUrl)) {
+        return { ...status(session), error: 'Вкладка фильма изменилась. Подключите фильм из этой комнаты снова.' };
+      }
+      const request = send(session.mediaTabId, { channel: 'vmeste-extension', type: 'media-sources' }, { frameId }, 2500);
+      return { pendingReply: request.then(reply => {
+        if (sessions[key] !== session || session.frameId !== frameId || !session.state.isHost) {
+          return { ...status(null), error: 'Выбранный плеер изменился. Повторите поиск.' };
+        }
+        const candidates = Array.isArray(reply?.candidates) ? reply.candidates.slice(0, 8).filter(item => {
+          try {
+            const url = new URL(item.url);
+            return ['file', 'hls'].includes(item.format) && item.url.length <= 4000 &&
+              url.protocol === 'https:' && !url.username && !url.password;
+          } catch { return false; }
+        }) : [];
+        return { ...status(session), candidates, error: candidates.length ? '' : 'Плеер не предоставил переносимую ссылку. Можно вставить прямой адрес видео вручную.' };
+      }) };
+    }
     if (message.type === 'connect') {
       const state = playback(message.data, roomId);
       if (!state.connected) throw new Error('Сначала восстановите связь с комнатой');

@@ -22,7 +22,7 @@ export function videoInput(v: Record<string, unknown>) {
 export function randomId() { return crypto.randomUUID().replaceAll("-", ""); }
 export async function hash(text: string) { return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))), b => b.toString(16).padStart(2, "0")).join(""); }
 export function bearer(req: Request) { const token = req.headers.get("authorization")?.replace(/^Bearer /, ""); if (!token || !/^[a-f0-9]{64}$/.test(token)) throw new ApiError("Войдите в комнату по приглашению", 401); return token; }
-export type RoomRow = { id: string; title: string; video_url: string; video_title: string; kind: Kind; poster: string; host_id: string; playing: number; position: number; revision: number; updated_at: number; expires_at: number };
+export type RoomRow = { id: string; title: string; video_url: string; video_title: string; media_url: string | null; media_format: "file" | "hls" | null; kind: Kind; poster: string; host_id: string; playing: number; position: number; revision: number; updated_at: number; expires_at: number };
 export type MemberRow = { id: string; room_id: string; name: string; color: number; seen_at: number };
 export async function getRoom(code: string) {
   if (!/^[a-z0-9]{12}$/.test(code)) throw new ApiError("Комната не найдена. Проверьте приглашение.", 404);
@@ -41,5 +41,6 @@ export async function snapshot(code: string, me: string) {
     db().prepare("SELECT id, name, color, seen_at FROM participants WHERE room_id = ? ORDER BY joined_at").bind(code).all<{ id: string; name: string; color: number; seen_at: number }>(),
     db().prepare("SELECT id, participant_id AS participantId, name, body, created_at AS createdAt FROM messages WHERE room_id = ? ORDER BY id DESC LIMIT 100").bind(code).all(),
   ]);
-  return { room: { id: r.id, title: r.title, videoUrl: r.video_url, videoTitle: r.video_title, kind: r.kind, poster: r.poster, hostId: r.host_id, playing: !!r.playing, position: r.position, revision: r.revision, updatedAt: r.updated_at, expiresAt: r.expires_at }, participants: people.results.map(p => ({ id: p.id, name: p.name, color: p.color, online: Date.now() - p.seen_at < 25000 })), messages: chat.results.reverse(), me, serverTime: Date.now() };
+  const nativeSource = r.media_url && r.media_format ? { url: r.media_url, format: r.media_format } : null;
+  return { room: { id: r.id, title: r.title, videoUrl: r.video_url, nativeSource, videoTitle: r.video_title, kind: r.kind, poster: r.poster, hostId: r.host_id, playing: !!r.playing, position: r.position, revision: r.revision, updatedAt: r.updated_at, expiresAt: r.expires_at }, participants: people.results.map(p => ({ id: p.id, name: p.name, color: p.color, online: Date.now() - p.seen_at < 25000 })), messages: chat.results.reverse(), me, serverTime: Date.now() };
 }

@@ -2,6 +2,7 @@ import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core
 export const rooms = sqliteTable("rooms", {
   id: text("id").primaryKey(), title: text("title").notNull(),
   videoUrl: text("video_url").notNull(), videoTitle: text("video_title").notNull(),
+  mediaUrl: text("media_url"), mediaFormat: text("media_format"),
   kind: text("kind").notNull(), poster: text("poster").notNull().default(""),
   hostId: text("host_id").notNull(), playing: integer("playing").notNull().default(0),
   position: real("position").notNull().default(0), revision: integer("revision").notNull().default(0),

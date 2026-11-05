@@ -30,7 +30,7 @@ test('default archive preserves every local extension source file', async () => 
   const result = run(['--output', output]);
   assert.equal(result.status, 0, result.stderr);
   const files = unpack(await readFile(output));
-  assert.equal(files.size, 12);
+  assert.equal(files.size, 13);
   assert.ok(files.has('page-recovery.mjs'));
   const manifest = JSON.parse(files.get('manifest.json'));
   assert.ok(files.has(manifest.action.default_popup));

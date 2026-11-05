@@ -19,7 +19,7 @@ if (publicAddress) {
 
 // Small reproducible ZIP writer; no external packaging/runtime dependency.
 const root = new URL('../extension/kinogo/', import.meta.url);
-const files = ['manifest.json', 'protocol.mjs', 'background.mjs', 'page-recovery.mjs', 'bridge.js', 'media-controller.js', 'media-selection.js', 'media.js', 'popup.html', 'popup.css', 'popup.js', 'README.md'];
+const files = ['manifest.json', 'protocol.mjs', 'background.mjs', 'page-recovery.mjs', 'bridge.js', 'media-controller.js', 'media-selection.js', 'media-sources.js', 'media.js', 'popup.html', 'popup.css', 'popup.js', 'README.md'];
 function crc32(bytes) {
   let crc = 0xffffffff;
   for (const byte of bytes) { crc ^= byte; for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1)); }

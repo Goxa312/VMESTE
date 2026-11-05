@@ -6,10 +6,11 @@ import { useKinogoExtension } from "@/hooks/use-kinogo-extension";
 import { playbackPosition, type RoomState } from "@/lib/shared";
 import { Spinner } from "./ui";
 
-export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRefresh }: {
+export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRefresh, onChooseSource }: {
   room: RoomState; isHost: boolean; offset: number; connected: boolean;
   onControl: (playing: boolean, position: number) => Promise<void>;
   onRefresh: () => Promise<{ room: RoomState; offset: number }>;
+  onChooseSource: () => void;
 }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const current = useRef({ room, isHost, offset, connected, onControl, onRefresh });
@@ -55,8 +56,11 @@ export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRef
     finally { setBusy(false); }
   }
   return <section className="player kinogo-player" aria-label="Совместный просмотр Киного">
-    <span className="eyebrow">КИНОГО · СОВМЕСТНЫЙ ПРОСМОТР</span><MonitorPlay size={42}/>
-    <h2>{extension.hasPlayer && reachable ? "Вы смотрите вместе" : "Один клик — и можно смотреть"}</h2>
+    <MonitorPlay size={42}/><h2>Плеер «Вместе»</h2>
+    <p>{isHost ? "Подключите видео один раз. Друзья смогут смотреть его в этой комнате по приглашению." : "Когда ведущий подключит видео, плеер появится здесь автоматически."}</p>
+    {isHost && <button className="button primary" onClick={onChooseSource}>Смотреть в комнате</button>}
+    <details className="kinogo-external" open={extension.connected || undefined}><summary>Просмотр на Киного через расширение</summary>
+    <div className="kinogo-external-controls">
     <p>Запустите фильм на Киного — длинное видео подключится автоматически. Комнату оставьте открытой для связи и чата.</p>
     <div className="kinogo-steps" aria-label="Подключение просмотра">
       <span className={reachable ? "done" : ""}>{reachable ? <Check size={15}/> : "1"} Расширение</span>
@@ -82,5 +86,6 @@ export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRef
     </details>
     {(error || extension.error) && <p className="error" role="alert">{error || extension.error}</p>}
     <small>{isHost ? "Ваши запуск, пауза и перемотка на Киного передаются участникам." : "Воспроизведением управляет ведущий. Громкость меняется только у вас."}</small>
+    </div></details>
   </section>;
 }

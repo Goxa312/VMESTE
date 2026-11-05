@@ -99,6 +99,29 @@ const app = id => ({ id: 'extension', tab: { id }, frameId: 0, url: `http://127.
 const media = (tabId, frameId = 7, url = 'https://kinogomy.stravers.live/') => ({ tab: { id: tabId, url: movie }, frameId, url });
 const dispatch = (sender, type, data) => new Promise(resolve => listener({ channel: 'vmeste-extension', type, data }, sender, resolve));
 
+test('only the owning host room can request a source from its selected film frame', async () => {
+  const host = app(81), stream = 'https://example.test/film.m3u8?signature=keep';
+  await dispatch(host, 'connect', sample());
+  const tabId = stored.sessions['81'].mediaTabId;
+  await dispatch(media(tabId, 7), 'select');
+  const original = chrome.tabs.sendMessage, imports = [];
+  chrome.tabs.sendMessage = (id, message, options) => {
+    if (message.type !== 'media-sources') return original(id, message, options);
+    imports.push({ id, frameId: options.frameId });
+    return Promise.resolve({ candidates: [{ url: stream, format: 'hls' }, { url: 'blob:https://kinogo.my/id', format: 'file' }] });
+  };
+  try {
+    const result = await dispatch(host, 'media-sources', { sourceUrl: movie });
+    assert.deepEqual(result.candidates, [{ url: stream, format: 'hls' }]);
+    assert.deepEqual(imports, [{ id: tabId, frameId: 7 }]);
+    assert.ok((await dispatch(app(82), 'media-sources', { sourceUrl: movie })).error);
+    assert.equal(await dispatch({ ...host, url: 'https://unrelated.test/' }, 'media-sources', { sourceUrl: movie }), null);
+    await dispatch(host, 'state', sample({ isHost: false, revision: 1 }));
+    assert.ok((await dispatch(host, 'media-sources', { sourceUrl: movie })).error);
+    assert.equal(imports.length, 1);
+  } finally { chrome.tabs.sendMessage = original; await dispatch(host, 'disconnect'); }
+});
+
 test('bridge isolates tabs and frames, authorizes host control and refreshes background rooms', async () => {
   appStates.set(1, sample());
   assert.equal((await dispatch(app(1), 'connect', sample({ token: 'must-stay-private' }))).connected, true);

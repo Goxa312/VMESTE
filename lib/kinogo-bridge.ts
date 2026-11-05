@@ -1,6 +1,7 @@
 import manifest from "../extension/kinogo/manifest.json" with { type: "json" };
+import type { DirectSource } from "./video-source";
 export const EXTENSION_VERSION = manifest.version;
-export type ExtensionStatus = { installed: boolean; connected: boolean; hasPlayer: boolean; pageReady?: boolean; pageTimedOut?: boolean; recovering?: boolean; autoRecovery?: boolean; error?: string; version?: string };
+export type ExtensionStatus = { installed: boolean; connected: boolean; hasPlayer: boolean; pageReady?: boolean; pageTimedOut?: boolean; recovering?: boolean; autoRecovery?: boolean; error?: string; version?: string; candidates?: DirectSource[] };
 export const EMPTY_EXTENSION: ExtensionStatus = { installed: false, connected: false, hasPlayer: false };
 
 export function needsExtensionUpdate(version?: string, requiredVersion = EXTENSION_VERSION) {

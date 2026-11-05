@@ -13,7 +13,7 @@
       if (response) { pending.delete(message.requestId); clearTimeout(response.timer); response.reply({ ok: message.ok === true, error: message.error, state: message.state }); }
       return;
     }
-    if (!['ping', 'connect', 'state', 'disconnect'].includes(message.type) || typeof message.requestId !== 'string') return;
+    if (!['ping', 'connect', 'state', 'disconnect', 'media-sources'].includes(message.type) || typeof message.requestId !== 'string') return;
     if (message.type !== 'ping' && !/^\/room\/[a-z0-9]{12}\/?$/.test(location.pathname)) return;
     chrome.runtime.sendMessage({ channel: 'vmeste-extension', type: message.type, data: message.data })
       .then(result => post({ type: 'response', requestId: message.requestId, result }))

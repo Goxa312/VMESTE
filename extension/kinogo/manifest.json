@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Вместе — просмотр Киного",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Синхронизация выбранного HTML5-видео на Киного с открытой комнатой Вместе.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "scripting", "alarms"],
@@ -16,7 +16,7 @@
     },
     {
       "matches": ["https://kinogo.my/*", "https://www.kinogo.my/*", "https://kinogomy.stravers.live/*"],
-      "js": ["media-controller.js", "media-selection.js", "media.js"],
+      "js": ["media-controller.js", "media-selection.js", "media-sources.js", "media.js"],
       "all_frames": true,
       "run_at": "document_start"
     }

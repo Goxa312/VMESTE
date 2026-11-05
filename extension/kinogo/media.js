@@ -104,9 +104,19 @@
     } catch (error) { text(error.message || 'Нет связи с расширением'); }
     finally { polling = false; }
   }
-  const receive = (message, sender) => {
+  const receive = (message, sender, respond) => {
     if (sender.id !== chrome.runtime.id || message?.channel !== 'vmeste-extension') return;
-    if (message.type === 'stop') stop();
+    if (message.type === 'media-sources') {
+      const selected = controller && session?.state.isHost && session.selectedFrameId === session.frameId &&
+        selectedVideo?.currentSrc === selectedSource;
+      respond({ candidates: selected ? globalThis.vmesteFilmSources(selectedVideo, performance.getEntriesByType('resource')) : [] });
+      return;
+    }
+    if (message.type === 'stop') {
+      const previous = selectedVideo;
+      stop();
+      if (message.pause) previous?.pause();
+    }
     if (message.type === 'wake') { nextPoll = 0; void poll(); }
   };
   chrome.runtime.onMessage.addListener(receive);

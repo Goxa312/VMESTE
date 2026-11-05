@@ -1,4 +1,5 @@
 import { safe, body, str, db, json, snapshot, getRoom, member, videoInput, ApiError } from "@/lib/server";
+import { directSourceError, isKinogoPage } from "@/lib/video-source";
 export async function POST(req: Request, context: { params: Promise<{ code: string }> }) { return safe(async () => {
   const { code } = await context.params, input = await body(req);
   const room = await getRoom(code), me = await member(req, code), now = Date.now();
@@ -16,9 +17,20 @@ export async function POST(req: Request, context: { params: Promise<{ code: stri
     if (input.action === "control") {
       if (typeof input.playing !== "boolean" || typeof input.position !== "number" || !Number.isFinite(input.position) || input.position < 0 || input.position > 604800) throw new ApiError("Некорректная позиция видео");
       result = await db().prepare("UPDATE rooms SET playing = ?, position = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND revision = ?").bind(input.playing ? 1 : 0, input.position, now, code, room.revision).run();
+    } else if (input.action === "player-source") {
+      if (!isKinogoPage(room.video_url) || input.pageUrl !== room.video_url ||
+          input.previousUrl !== (room.media_url ?? null)) throw new ApiError("Источник комнаты уже изменился. Откройте настройку заново.", 409);
+      const url = input.url === null ? null : str(input.url, "Ссылка на видео", 4000);
+      const error = url && directSourceError(url);
+      if (error) throw new ApiError(error);
+      const format = url ? input.format : null;
+      if (url && format !== "hls" && format !== "file") throw new ApiError("Выберите формат видео.");
+      const position = room.position + (room.playing ? Math.max(0, now - room.updated_at) / 1000 : 0);
+      result = await db().prepare("UPDATE rooms SET media_url = ?, media_format = ?, playing = 0, position = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND revision = ?")
+        .bind(url, format, position, now, code, room.revision).run();
     } else if (input.action === "video") {
       const v = videoInput(input);
-      result = await db().prepare("UPDATE rooms SET video_url = ?, video_title = ?, kind = ?, poster = ?, playing = 0, position = 0, updated_at = ?, revision = revision + 1 WHERE id = ? AND revision = ?").bind(v.url, v.title, v.kind, v.poster, now, code, room.revision).run();
+      result = await db().prepare("UPDATE rooms SET video_url = ?, video_title = ?, kind = ?, poster = ?, media_url = NULL, media_format = NULL, playing = 0, position = 0, updated_at = ?, revision = revision + 1 WHERE id = ? AND revision = ?").bind(v.url, v.title, v.kind, v.poster, now, code, room.revision).run();
     } else throw new ApiError("Неизвестное действие");
     if (!result.meta.changes) throw new ApiError("Состояние изменилось. Повторите действие.", 409);
   }

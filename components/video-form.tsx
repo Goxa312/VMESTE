@@ -27,7 +27,7 @@ export function VideoForm({ mode, selected, onClose, onSaved, onChangeVideo }: {
       {mode === "create" && <div className="form-row"><label>Ваше имя<input autoFocus required maxLength={24} value={name} onChange={e => setName(e.target.value)} placeholder="Как вас зовут?" /></label><label>Название комнаты<input required maxLength={80} value={roomTitle} onChange={e => setRoomTitle(e.target.value)} /></label></div>}
       <label>Название видео<input autoFocus={mode !== "create"} required maxLength={100} value={title} onChange={e => setTitle(e.target.value)} placeholder="Например, любимый фильм" /></label>
       <label>Ссылка на видео или страницу Киного<div className="input-icon"><Link2 size={17}/><input type="url" required maxLength={4000} value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com/movie.mp4" /></div></label>
-      <p className="field-hint">Страницы фильмов с kinogo.my поддерживаются через расширение Chrome/Edge у каждого участника. Прямые MP4, WebM и HLS работают в этой комнате; для HLS нужен CORS.</p>
+      <p className="field-hint">Прямое видео откроется в комнате. Для страницы Киного ведущий сможет подключить видеопоток кнопкой «Смотреть в комнате».</p>
       <label>Раздел<select value={kind} onChange={e => setKind(e.target.value as Kind)}>{Object.entries(kinds).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label>
       {(mode === "change" || (!selected && mode === "create")) && <button className="demo-pick" type="button" disabled={busy} onClick={() => { setTitle(demos[0].title); setUrl(demos[0].url); setKind("film"); setError(""); }}>Нет ссылки под рукой? <span>Включить демофильм →</span></button>}
       {error && <p className="error" role="alert">{error}</p>}

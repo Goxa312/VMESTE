@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowLeft, Check, Copy, Link2, PanelRightClose, PanelRightOpen, Plus, SendHorizontal, Users, WifiOff, X, Clapperboard } from "lucide-react";
 import { api, readLocal, rememberRoom, RequestError, saveLocal } from "@/lib/client";
 import { kinds, type Snapshot, type Video } from "@/lib/shared";
@@ -11,6 +11,19 @@ import { RoomSourceDialog } from "./room-source-dialog";
 import { extensionRequest } from "@/lib/kinogo-bridge";
 import { isKinogoPage } from "@/lib/video-source";
 import { VideoForm } from "./video-form";
+function KinogoOption({ code, children }: { code: string; children: ReactNode }) {
+  const key = "vm-kinogo-option-" + code;
+  // Only a viewer who selected Kinogo needs to contact the browser extension.
+  const [selected, setSelected] = useState(() => {
+    try { return sessionStorage.getItem(key) === "1"; } catch { return false; }
+  });
+  return <details className="legacy-source" onToggle={event => {
+    if (!event.currentTarget.open || selected) return;
+    setSelected(true);
+    try { sessionStorage.setItem(key, "1"); } catch { /* Optional in private browsing. */ }
+  }}><summary>Подключить плеер Киного</summary>{selected && children}</details>;
+}
+
 export default function Room({ code }: { code: string }) {
   const [token, setToken] = useState(""), [initialized, setInitialized] = useState(false), [snapshot, setSnapshot] = useState<Snapshot>(), [name, setName] = useState(""), [error, setError] = useState(""), [fatal, setFatal] = useState(false), [connected, setConnected] = useState(false), [joining, setJoining] = useState(false), [busy, setBusy] = useState(false), [chatBusy, setChatBusy] = useState(false), [message, setMessage] = useState(""), [change, setChange] = useState(false), [copied, setCopied] = useState(false), [invite, setInvite] = useState("");
   const [filmOnly, setFilmOnly] = useState(false);
@@ -36,13 +49,13 @@ export default function Room({ code }: { code: string }) {
   useEffect(() => { const box = chatList.current; if (box && (lastSeenMessage.current === undefined || box.scrollHeight - box.clientHeight - box.scrollTop < 120 || latest.current?.messages.at(-1)?.participantId === latest.current?.me)) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" }); lastSeenMessage.current = lastMessage; }, [lastMessage, chatTab]);
   useEffect(() => { if (copied) { const timer = setTimeout(() => setCopied(false), 2500); return () => clearTimeout(timer); } }, [copied]);
   async function join(e: FormEvent) { e.preventDefault(); setJoining(true); setError(""); const start = Date.now(); try { const data = await api<Snapshot & { token: string }>(`/api/rooms/${code}`, undefined, { name }); rememberRoom(data); saveLocal("vm-name", name); apply(data, start); setToken(data.token); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось войти"); } finally { setJoining(false); } }
-  async function action(data: Record<string, unknown>) { const start = Date.now(); const result = await api<Snapshot>(`/api/rooms/${code}/actions`, token, { ...data, revision: latest.current?.room.revision }); apply(result, start); }
-  async function refreshForExtension() {
+  async function action(data: Record<string, unknown>) { const start = Date.now(); const result = await api<Snapshot & { startedShare?: string }>(`/api/rooms/${code}/actions`, token, { ...data, revision: latest.current?.room.revision }); apply(result, start); return result; }
+  const refreshRoom = useCallback(async () => {
     const start = Date.now();
     const data = await api<Snapshot>(`/api/rooms/${code}`, token);
     apply(data, start);
     return { room: data.room, offset: data.serverTime - (start + Date.now()) / 2 };
-  }
+  }, [code, token, apply]);
   async function control(playing: boolean, position: number) { if (busyRef.current) return; busyRef.current = true; setBusy(true); try { await action({ action: "control", playing, position }); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось синхронизировать"); } finally { busyRef.current = false; setBusy(false); } }
   async function send(text: string) { if (!text.trim() || chatBusy) return; setChatBusy(true); try { await action({ action: "message", text }); setMessage(""); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось отправить"); } finally { setChatBusy(false); } }
   async function copy() { try { await navigator.clipboard.writeText(invite); setCopied(true); } catch { setError("Скопируйте ссылку из поля приглашения ниже."); } }
@@ -57,10 +70,10 @@ export default function Room({ code }: { code: string }) {
   }
   const watchingKinogo = isKinogoPage(room.videoUrl);
   const roomPlayer = (room.sourceMode === "page" || room.sourceMode === "local") && !room.nativeSource
-    ? <TabPlayer key={room.videoUrl} room={room} token={token} host={isHost} hostOnline={online.some(p => p.id === room.hostId)} connected={connected} onAction={action}>
+    ? <TabPlayer key={room.videoUrl} room={room} token={token} host={isHost} hostOnline={online.some(p => p.id === room.hostId)} connected={connected} onAction={action} onSessionChanged={refreshRoom}>
         {isHost && room.sourceMode === "page" && !watchingKinogo && <button className="text-button" onClick={openSourceSetup}>Есть прямая ссылка на видео?</button>}
-        {watchingKinogo && <details className="legacy-source"><summary>Подключить плеер Киного</summary><KinogoPlayer key={room.videoUrl} room={room} isHost={isHost} offset={offset} connected={connected}
-        onControl={(playing, position) => action({ action: "control", playing, position })} onRefresh={refreshForExtension} onChooseSource={openSourceSetup}/></details>}
+        {watchingKinogo && <KinogoOption code={code}><KinogoPlayer key={room.videoUrl} room={room} isHost={isHost} offset={offset} connected={connected}
+        onControl={async (playing, position) => { await action({ action: "control", playing, position }); }} onRefresh={refreshRoom} onChooseSource={openSourceSetup}/></KinogoOption>}
       </TabPlayer>
     : room.sourceMode === "upload" && !room.videoUrl ? <div className="live-stage"><div className="live-intro"><Clapperboard size={34}/><h2>Фильм ещё загружается</h2><p>{isHost ? "Выберите файл, чтобы начать просмотр в этой комнате." : "Плеер появится здесь, как только ведущий загрузит файл."}</p>{isHost && <button className="button primary" onClick={() => setChange(true)}>Выбрать файл</button>}</div></div>
     : <Player key={JSON.stringify([room.videoUrl, room.nativeSource])} room={room} isHost={isHost} offset={offset} busy={busy}
@@ -73,7 +86,7 @@ export default function Room({ code }: { code: string }) {
     </main>{change && <VideoForm mode="change" uploadTarget={{ code, token, revision: room.revision }} selected={{ sourceMode: room.sourceMode, id: snapshot.room.id, title: snapshot.room.videoTitle, url: snapshot.room.videoUrl, kind: snapshot.room.kind, poster: snapshot.room.poster }} onClose={() => setChange(false)} onChangeVideo={async (v: Partial<Video>) => { await action({ action: "video", ...v }); }}/>}
     {isHost && sourceSetup?.pageUrl === room.videoUrl && sourceSetup.previousUrl === (room.nativeSource?.url ?? null) &&
       <RoomSourceDialog room={room} offset={offset} connected={connected} onClose={() => setSourceSetup(null)}
-        onApply={source => action({ action: "player-source", pageUrl: sourceSetup.pageUrl, previousUrl: sourceSetup.previousUrl,
-          url: source?.url ?? null, format: source?.format ?? null })}/>}
+        onApply={async source => { await action({ action: "player-source", pageUrl: sourceSetup.pageUrl, previousUrl: sourceSetup.previousUrl,
+          url: source?.url ?? null, format: source?.format ?? null }); }}/>}
     </div>;
 }

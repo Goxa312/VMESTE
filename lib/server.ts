@@ -2,9 +2,9 @@ import { env } from "cloudflare:workers";
 import type { Kind } from "./shared";
 import { directSourceError, isKinogoPage, linkMode, videoUrlError, type SourceMode } from "./video-source";
 export function db() { if (!env.DB) throw new Error("Database unavailable"); return env.DB; }
-export class ApiError extends Error { constructor(message: string, public status = 400) { super(message); } }
+export class ApiError extends Error { constructor(message: string, public status = 400, public code?: string) { super(message); } }
 export function json(data: unknown, status = 200) { return Response.json(data, { status, headers: { "Cache-Control": "no-store" } }); }
-export async function safe(fn: () => Promise<Response>) { try { return await fn(); } catch (e) { if (e instanceof ApiError) return json({ error: e.message }, e.status); console.error(e); return json({ error: "Сервер временно недоступен. Попробуйте ещё раз." }, 500); } }
+export async function safe(fn: () => Promise<Response>) { try { return await fn(); } catch (e) { if (e instanceof ApiError) return json({ error: e.message, code: e.code }, e.status); console.error(e); return json({ error: "Сервер временно недоступен. Попробуйте ещё раз." }, 500); } }
 export async function body(req: Request, limit = 12000): Promise<Record<string, unknown>> {
   if (Number(req.headers.get("content-length") || 0) > limit) throw new ApiError("Слишком большой запрос", 413);
   const raw = await req.text(); if (raw.length > limit) throw new ApiError("Слишком большой запрос", 413);

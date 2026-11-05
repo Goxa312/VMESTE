@@ -1,6 +1,9 @@
 // Real tab capture and media decoding with WebRTC intentionally unable to find a route.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import http from "node:http";
+import https from "node:https";
+import { randomBytes } from "node:crypto";
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.QA_PLAYWRIGHT || "playwright");
 const base = process.env.TEST_BASE_URL || "http://127.0.0.1:8790";
@@ -34,11 +37,25 @@ async function enter(page, url, name) {
   await page.getByRole("button",{name:"Войти в комнату",exact:true}).click();
   await page.getByRole("button",{name:"Пригласить друзей"}).waitFor();
 }
+// Use a complete, HTTP/1.1 WebSocket upgrade: the public edge rejects malformed
+// Upgrade requests before the Worker's membership check can run.
+function handshake(path, origin, cookie="") {
+  const url=new URL(path,base);
+  return new Promise((resolve,reject) => {
+    const req=(url.protocol==="https:"?https:http).get(url,{
+      headers:{Origin:origin, Connection:"Upgrade", Upgrade:"websocket", "Sec-WebSocket-Version":"13",
+        "Sec-WebSocket-Key":randomBytes(16).toString("base64"), "X-Host":"1", ...(cookie && {Cookie:cookie})}
+    }, res=>{res.resume();resolve(res.statusCode);});
+    req.on("upgrade",(_res,socket)=>{socket.destroy();resolve(101);});
+    req.on("error",reject); req.setTimeout(12000,()=>req.destroy(new Error("Handshake timed out")));
+  });
+}
 const status = async page => (await page.locator(".live-stage [role=status]").allTextContents()).join(" · ");
 try {
   // Pretend only this one host-owned test page is the film; no third-party video is accessed.
   await hostContext.route(filmUrl, r => r.fulfill({ contentType:"text/html", body:'<title>VmesteRelayFixture</title><main></main><script>let n=0;setInterval(()=>{document.body.style.background=n++%2?"#f98":"#345";document.querySelector("main").textContent=n},100)</script>' }));
   await host.goto(base);
+  await host.locator(".loading-small").waitFor({ state:"hidden" }); // wait until the room form is hydrated
   await host.getByRole("textbox",{name:"Ссылка на фильм"}).fill(filmUrl);
   await host.getByRole("button",{name:"Создать комнату",exact:true}).click();
   const dialog=host.getByRole("dialog");
@@ -76,12 +93,11 @@ try {
   }
   const socketPath="/api/rooms/"+code+"/relay/"+session;
   // Neither a URL alone nor an undocumented role header grants access.
-  const outsider=await browser.newContext();
-  const bare=await outsider.request.get(base+socketPath,{headers:{Origin:base,Upgrade:"websocket","X-Host":"1"}});
-  assert.equal(bare.status(),401);
-  await outsider.close();
-  const crossOrigin=await guestContext.request.get(base+socketPath,{headers:{Origin:"https://example.invalid",Upgrade:"websocket"}});
-  assert.equal(crossOrigin.status(),403);
+  assert.equal(await handshake(socketPath,base),401);
+  const cookie=(await guestContext.cookies(base+socketPath)).find(c=>c.name==="vm-live");
+  assert.ok(cookie?.httpOnly);
+  const auth=cookie.name+"="+cookie.value;
+  assert.equal(await handshake(socketPath,"https://example.invalid",auth),403);
   const denied=await late.evaluate(path => new Promise((resolve, reject) => {
     const url=new URL(path,location.href); url.protocol=location.protocol==="https:"?"wss:":"ws:";
     const sock=new WebSocket(url); sock.onopen=()=>sock.send(new Uint8Array([1]));
@@ -92,8 +108,7 @@ try {
   await host.getByRole("button",{name:"Завершить показ",exact:true}).click();
   await guest.getByRole("heading",{name:"Ждём следующего показа"}).waitFor();
   assert.equal(await guest.locator(".live-video").count(),0);
-  const stale=await guestContext.request.get(base+socketPath,{headers:{Origin:base,Upgrade:"websocket"}});
-  assert.equal(stale.status(),409);
+  assert.equal(await handshake(socketPath,base,auth),409);
   console.log("PASS: ending the show closes the relay and denies stale handshakes");
   assert.deepEqual(errors,[]);
 } catch(e) {

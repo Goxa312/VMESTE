@@ -1,7 +1,10 @@
 "use client";
 import { useEffect, useRef, type ReactNode } from "react";
 import { X, LoaderCircle } from "lucide-react";
-export function Logo() { return <a className="brand" href="/" aria-label="Вместе — на главную">вместе</a>; }
+import { siteName } from "@/lib/brand";
+export function Logo() {
+  return <a className="brand" href="/" aria-label={`${siteName} — на главную`}>{siteName}</a>;
+}
 export function Spinner() { return <LoaderCircle size={18} className="spin" />; }
 export function Modal({ title, caption, children, onClose }: { title: string; caption?: string; children: ReactNode; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);

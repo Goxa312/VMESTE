@@ -23,7 +23,7 @@ function hlsFailure(data: ErrorData) {
     return { message: "Источник ответил, но браузер не смог прочитать плейлист HLS. Проверьте другой найденный поток.", fallback: false };
   }
   if (data.type === ErrorTypes.NETWORK_ERROR) {
-    return { message: `Браузер не смог загрузить ${resource}. Возможны сбой сети или ограничение доступа с сайта «Вместе». Попробуйте другой поток.`, fallback: true };
+    return { message: `Браузер не смог загрузить ${resource}. Возможны сбой сети или ограничение доступа из комнаты. Попробуйте другой поток.`, fallback: true };
   }
   return { message: "Браузер не смог декодировать этот HLS-поток. Попробуйте другой вариант качества или другой источник.", fallback: true };
 }

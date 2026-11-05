@@ -1,8 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, Check, Copy, Link2, PanelRightClose, PanelRightOpen, Plus, SendHorizontal, Users, WifiOff, X, Clapperboard } from "lucide-react";
+import { Check, Link2, SendHorizontal, Users, WifiOff, X, Clapperboard } from "lucide-react";
 import { api, readLocal, rememberRoom, RequestError, saveLocal } from "@/lib/client";
-import { kinds, type Snapshot, type Video } from "@/lib/shared";
+import type { Snapshot, Video } from "@/lib/shared";
 import { Logo, Spinner, Empty } from "./ui";
 import { TabPlayer } from "./tab-player";
 import { Player } from "./player";
@@ -27,6 +27,9 @@ function KinogoOption({ code, children }: { code: string; children: ReactNode })
 export default function Room({ code }: { code: string }) {
   const [token, setToken] = useState(""), [initialized, setInitialized] = useState(false), [snapshot, setSnapshot] = useState<Snapshot>(), [name, setName] = useState(""), [error, setError] = useState(""), [fatal, setFatal] = useState(false), [connected, setConnected] = useState(false), [joining, setJoining] = useState(false), [busy, setBusy] = useState(false), [chatBusy, setChatBusy] = useState(false), [message, setMessage] = useState(""), [change, setChange] = useState(false), [copied, setCopied] = useState(false), [invite, setInvite] = useState("");
   const [filmOnly, setFilmOnly] = useState(false);
+  const [inviteFallback, setInviteFallback] = useState(false);
+  const inviteInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (inviteFallback) { inviteInput.current?.focus(); inviteInput.current?.select(); } }, [inviteFallback]);
   const [offset, setOffset] = useState(0), [chatTab, setChatTab] = useState<"chat" | "people">("chat");
   const [sourceSetup, setSourceSetup] = useState<{ pageUrl: string; previousUrl: string | null } | null>(null);
   const mediaUrl = snapshot?.room.nativeSource?.url;
@@ -58,31 +61,94 @@ export default function Room({ code }: { code: string }) {
   }, [code, token, apply]);
   async function control(playing: boolean, position: number) { if (busyRef.current) return; busyRef.current = true; setBusy(true); try { await action({ action: "control", playing, position }); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось синхронизировать"); } finally { busyRef.current = false; setBusy(false); } }
   async function send(text: string) { if (!text.trim() || chatBusy) return; setChatBusy(true); try { await action({ action: "message", text }); setMessage(""); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось отправить"); } finally { setChatBusy(false); } }
-  async function copy() { try { await navigator.clipboard.writeText(invite); setCopied(true); } catch { setError("Скопируйте ссылку из поля приглашения ниже."); } }
+  async function copy() {
+    try { await navigator.clipboard.writeText(invite); setCopied(true); setInviteFallback(false); }
+    catch { setInviteFallback(true); }
+  }
   const isHost = snapshot?.me === snapshot?.room.hostId;
   const online = snapshot?.participants.filter(p => p.online) || [];
   if (!initialized || (token && !snapshot && !fatal)) return <div className="room-loading"><Logo/><Spinner/><p>{error || "Готовим ваш кинозал…"}</p><a href="/" className="text-button">Вернуться в библиотеку</a></div>;
   if (fatal) return <div className="join-page"><Logo/><Empty title="Кинозал пока недоступен" text={error} action="Вернуться в библиотеку" onClick={() => { window.location.href = "/"; }}/></div>;
-  if (!token || !snapshot) return <div className="join-page"><div className="join-background"/><Logo/><div className="join-card"><span className="section-label">Приглашение в кинозал</span><h1>Войти в комнату</h1><p>Представьтесь, чтобы друзья узнали вас в чате.</p><form onSubmit={join} className="stack-form"><label>Как вас зовут?<input autoFocus required maxLength={24} value={name} onChange={e => setName(e.target.value)} placeholder="Ваше имя"/></label>{error && <p className="error" role="alert">{error}</p>}<button className="button primary full" disabled={joining}>{joining ? <Spinner/> : "Войти в комнату"}</button></form><a className="text-button" href="/">В библиотеку</a></div></div>;
+  if (!token || !snapshot) return <div className="join-page"><div className="join-background"/><Logo/><div className="join-card"><h1>Войти в комнату</h1><p>Представьтесь, чтобы друзья узнали вас в чате.</p><form onSubmit={join} className="stack-form"><label>Как вас зовут?<input autoFocus required maxLength={24} value={name} onChange={e => setName(e.target.value)} placeholder="Ваше имя"/></label>{error && <p className="error" role="alert">{error}</p>}<button className="button primary full" disabled={joining}>{joining ? <Spinner/> : "Войти в комнату"}</button></form><a className="text-button" href="/">В библиотеку</a></div></div>;
   const room = snapshot.room;
   function openSourceSetup() {
     setSourceSetup({ pageUrl: room.videoUrl, previousUrl: room.nativeSource?.url ?? null });
   }
   const watchingKinogo = isKinogoPage(room.videoUrl);
-  const roomPlayer = (room.sourceMode === "page" || room.sourceMode === "local") && !room.nativeSource
+  const needsCapture = (room.sourceMode === "page" || room.sourceMode === "local") && !room.nativeSource;
+  const awaitingFile = room.sourceMode === "upload" && !room.videoUrl;
+  const viewControl = <button type="button" className="view-toggle" aria-controls="room-chat" aria-expanded={!filmOnly}
+    onClick={() => setFilmOnly(value => !value)}>{filmOnly ? "Вернуть панели" : "Только фильм"}</button>;
+  const roomPlayer = needsCapture
     ? <TabPlayer key={room.videoUrl} room={room} token={token} host={isHost} hostOnline={online.some(p => p.id === room.hostId)} connected={connected} onAction={action} onSessionChanged={refreshRoom}>
         {isHost && room.sourceMode === "page" && !watchingKinogo && <button className="text-button" onClick={openSourceSetup}>Есть прямая ссылка на видео?</button>}
         {watchingKinogo && <KinogoOption code={code}><KinogoPlayer key={room.videoUrl} room={room} isHost={isHost} offset={offset} connected={connected}
         onControl={async (playing, position) => { await action({ action: "control", playing, position }); }} onRefresh={refreshRoom} onChooseSource={openSourceSetup}/></KinogoOption>}
       </TabPlayer>
-    : room.sourceMode === "upload" && !room.videoUrl ? <div className="live-stage"><div className="live-intro"><Clapperboard size={34}/><h2>Фильм ещё загружается</h2><p>{isHost ? "Выберите файл, чтобы начать просмотр в этой комнате." : "Плеер появится здесь, как только ведущий загрузит файл."}</p>{isHost && <button className="button primary" onClick={() => setChange(true)}>Выбрать файл</button>}</div></div>
+    : awaitingFile ? <div className="live-stage"><div className="live-intro"><Clapperboard size={34}/><h2>Фильм ещё загружается</h2><p>{isHost ? "Выберите файл, чтобы начать просмотр в этой комнате." : "Плеер появится здесь, как только ведущий загрузит файл."}</p>{isHost && <button className="button primary" onClick={() => setChange(true)}>Выбрать файл</button>}</div></div>
     : <Player key={JSON.stringify([room.videoUrl, room.nativeSource])} room={room} isHost={isHost} offset={offset} busy={busy}
-        connected={connected} onControl={control} onChangeVideo={room.sourceMode === "page" ? openSourceSetup : () => setChange(true)}/>;
-  return <div className={`room-page${filmOnly ? " film-only" : ""}`}><header className="room-topbar"><Logo/><a className="text-button" href="/" aria-label="В библиотеку" onClick={() => { void api(`/api/rooms/${code}/actions`, token, { action: "leave" }).catch(() => {}); }}><ArrowLeft size={16}/><span>В библиотеку</span></a><div className="room-top-spacer"/><span className={`connection-status ${connected ? "" : "disconnected"}`}><span className={connected ? "green-dot" : "amber-dot"}/>{connected ? "Связь установлена" : "Переподключение"}</span><button className="button outline" onClick={() => void copy()}>{copied ? <Check size={17}/> : <Link2 size={17}/>}<span>{copied ? "Ссылка скопирована" : "Пригласить друзей"}</span></button></header>
-    <main className="room-content"><div className="room-heading"><div><p className="room-name">{snapshot.room.title}</p><h1>{snapshot.room.videoTitle}</h1></div><div className="room-view"><span className="room-population" aria-label={`Зрителей в комнате: ${online.length}`}><Users size={16}/>{online.length} / 12</span><button className="view-toggle" aria-controls="room-chat" aria-expanded={!filmOnly} onClick={() => setFilmOnly(value => !value)}>{filmOnly ? <PanelRightOpen size={17}/> : <PanelRightClose size={17}/>}<span>{filmOnly ? "Вернуть панели" : "Только фильм"}</span></button></div></div>
-    {error && <div className="notice" role="alert">{!connected && <WifiOff size={17}/>}<span>{error}</span><button aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={16}/></button></div>}
-    <div className="watch-layout"><div className="watch-main">{roomPlayer}<div className="now-playing"><div><span className="eyebrow">{kinds[snapshot.room.kind]}</span><h2>{isHost ? "Вы ведёте просмотр" : "Совместный просмотр"}</h2><p>{isHost ? (room.sourceMode === "local" || room.sourceMode === "page" && !room.nativeSource ? "Друзья видят ваш показ в этой комнате." : "Запуск, пауза и перемотка применяются у всех.") : `Просмотром управляет ${snapshot.participants.find(p => p.id === snapshot.room.hostId)?.name || "ведущий"}.`}</p></div>{isHost && room.nativeSource && <button className="text-button" onClick={openSourceSetup}>Источник видео</button>}{isHost && <button className="button subtle" onClick={() => setChange(true)}><Plus size={17}/>Выбрать фильм</button>}</div><section className="company"><div className="company-heading"><h3>Сегодня с вами</h3><span>{online.length} в комнате</span></div><div className="people-row">{snapshot.participants.filter(p => p.online || p.id === snapshot.room.hostId || p.id === snapshot.me).map(p => <div className="person" key={p.id}><span className={`avatar avatar-${p.color}`}><span>{p.name.slice(0, 1).toUpperCase()}</span><i className={p.online ? "online" : ""}/></span><div><strong>{p.name}{p.id === snapshot.me && <small> (вы)</small>}</strong><span>{p.id === snapshot.room.hostId ? <>Ведущий{!p.online && " · не в сети"}</> : p.online ? "В комнате" : "Не в сети"}</span></div></div>)}<button className="add-person" aria-label="Пригласить участника" onClick={() => void copy()}><Plus size={21}/></button></div></section><div className="room-invite"><Link2 size={18}/><label htmlFor="invite-link">Приглашение</label><input id="invite-link" readOnly value={invite} onFocus={e => e.target.select()}/><button className="icon-button" aria-label="Скопировать приглашение" onClick={() => void copy()}>{copied ? <Check size={18}/> : <Copy size={18}/>}</button></div></div>
-    <aside className="chat-panel" id="room-chat" aria-label="Панель комнаты"><div className="chat-tabs"><button className={chatTab === "chat" ? "selected" : ""} aria-pressed={chatTab === "chat"} onClick={() => setChatTab("chat")}>Чат комнаты</button><button className={chatTab === "people" ? "selected" : ""} onClick={() => setChatTab("people")} aria-pressed={chatTab === "people"} aria-label="Участники"><Users size={17}/>{online.length}</button></div>{chatTab === "chat" ? <><div className="chat-messages" ref={chatList} role="log" aria-label="Чат комнаты" aria-live="polite">{!snapshot.messages.length && <div className="chat-welcome"><strong>Пока тихо</strong><p>Первое сообщение увидят только участники комнаты.</p></div>}{snapshot.messages.map(m => <div key={m.id} className={`chat-message ${m.participantId === snapshot.me ? "own" : ""}`}><div className="message-author"><span>{m.name}</span><time>{new Date(m.createdAt).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })}</time></div><p>{m.body}</p></div>)}<div ref={chatEnd}/></div><div className="chat-bottom"><div className="reactions">{["❤️", "😂", "🍿", "🔥", "👏"].map(emoji => <button key={emoji} aria-label={`Отправить реакцию ${emoji}`} disabled={!connected || chatBusy} onClick={() => void send(emoji)}>{emoji}</button>)}</div><form className="message-form" onSubmit={e => { e.preventDefault(); void send(message); }}><input aria-label="Сообщение в чат" maxLength={500} placeholder="Сообщение в чат" value={message} onChange={e => setMessage(e.target.value)} disabled={!connected}/><button aria-label="Отправить сообщение" disabled={!connected || chatBusy || !message.trim()}>{chatBusy ? <Spinner/> : <SendHorizontal size={18}/>}</button></form></div></> : <div className="people-tab">{snapshot.participants.filter(p => p.online || p.id === snapshot.room.hostId).map(p => <div className="person" key={p.id}><span className={`avatar avatar-${p.color}`}>{p.name.slice(0, 1).toUpperCase()}</span><div><strong>{p.name}</strong><span>{p.id === snapshot.room.hostId ? "Ведущий" : "Участник"}{!p.online && " · не в сети"}</span></div></div>)}<button className="button subtle full" onClick={() => void copy()}><Plus size={17}/>Позвать друзей</button></div>}</aside></div><div className="room-footer">Вместе · частный кинозал<span>Комната хранится до {new Date(snapshot.room.expiresAt).toLocaleDateString("ru")}</span></div>
+        connected={connected} onControl={control} viewControl={viewControl} onChangeVideo={room.sourceMode === "page" ? openSourceSetup : () => setChange(true)}/>;
+  return <div className={`room-page${filmOnly ? " film-only" : ""}`}>
+    <header className="room-topbar">
+      <Logo/><h1 className="room-film-title" title={room.videoTitle}>{room.videoTitle}</h1>
+      <button className="invite-action" onClick={() => void copy()}>
+        {copied ? <Check size={18}/> : <Link2 size={18}/>}
+        <span aria-live="polite">{copied ? "Ссылка скопирована" : "Пригласить друга"}</span>
+      </button>
+    </header>
+    <main className="room-content">
+      {inviteFallback && <div className="manual-invite">
+        <label htmlFor="invite-link">Ссылка для друга</label>
+        <input id="invite-link" ref={inviteInput} readOnly value={invite} onFocus={e => e.target.select()}/>
+        <button className="icon-button" aria-label="Закрыть приглашение" onClick={() => setInviteFallback(false)}><X size={16}/></button>
+      </div>}
+      {error && <div className="notice" role="alert">
+        {!connected && <WifiOff size={17}/>}<span>{error}</span>
+        <button aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={16}/></button>
+      </div>}
+      <div className="watch-layout">
+        <div className="watch-main">
+          {roomPlayer}
+          {(needsCapture || awaitingFile) && <div className="live-view-bar">{viewControl}</div>}
+        </div>
+        <aside className="chat-panel" id="room-chat" aria-label="Панель комнаты">
+          <div className="chat-tabs">
+            <button aria-pressed={chatTab === "chat"} onClick={() => setChatTab("chat")}>Чат</button>
+            <button className="people-switch" aria-pressed={chatTab === "people"} aria-label="Участники" onClick={() => setChatTab("people")}><Users size={16}/>{online.length}</button>
+          </div>
+          {chatTab === "chat" ? <>
+            <div className="chat-messages" ref={chatList} role="log" aria-label="Чат комнаты" aria-live="polite">
+              {!snapshot.messages.length && <p className="chat-welcome">Здесь появятся сообщения.</p>}
+              {snapshot.messages.map(m => <div key={m.id} className="chat-message"><p>{m.body}</p>
+                <div className="message-author"><span>{m.name}</span><time>{new Date(m.createdAt).toLocaleTimeString("ru", { hour:"2-digit", minute:"2-digit" })}</time></div>
+              </div>)}
+              <div ref={chatEnd}/>
+            </div>
+            <div className="chat-bottom">
+              <details className="chat-reactions"><summary>Реакции</summary><div className="reactions">
+                {["❤️","😂","🍿","🔥","👏"].map(emoji => <button key={emoji} aria-label={`Отправить реакцию ${emoji}`} disabled={!connected || chatBusy}
+                  onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); void send(emoji); }}>{emoji}</button>)}
+              </div></details>
+              <form className="message-form" onSubmit={event => { event.preventDefault(); void send(message); }}>
+                <input aria-label="Сообщение в чат" placeholder="Сообщение в чат" maxLength={500} value={message} onChange={e => setMessage(e.target.value)} disabled={!connected}/>
+                <button aria-label="Отправить сообщение" disabled={!connected || chatBusy || !message.trim()}>{chatBusy ? <Spinner/> : <SendHorizontal size={18}/>}</button>
+              </form>
+            </div>
+          </> : <div className="people-tab">
+            {snapshot.participants.filter(p => p.online || p.id === room.hostId || p.id === snapshot.me).map(p => <div className="person" key={p.id}>
+              <div><strong>{p.name}{p.id === snapshot.me && " (вы)"}</strong>
+                <span>{p.id === room.hostId ? (p.online ? "Ведущий" : "Ведущий · не в сети") : (p.online ? "В комнате" : "Не в сети")}</span></div>
+            </div>)}
+            <button className="text-link" onClick={() => void copy()}>Пригласить друга в комнату</button>
+          </div>}
+        </aside>
+      </div>
+      <div className="room-tools">
+        <span>{room.title} <span className="role-caption">· {isHost ? "Вы ведущий" : `Ведущий: ${snapshot.participants.find(p => p.id === room.hostId)?.name || "участник"}`}</span></span>
+        {isHost && <div>{room.nativeSource && <button className="text-link" onClick={openSourceSetup}>Источник видео</button>}
+          <button className="text-link" onClick={() => setChange(true)}>Выбрать фильм</button></div>}
+      </div>
+      <footer className="room-footer"><a href="/#library">Фильмотека</a><span>Комната открыта до {new Date(room.expiresAt).toLocaleDateString("ru")}</span></footer>
     </main>{change && <VideoForm mode="change" uploadTarget={{ code, token, revision: room.revision }} selected={{ sourceMode: room.sourceMode, id: snapshot.room.id, title: snapshot.room.videoTitle, url: snapshot.room.videoUrl, kind: snapshot.room.kind, poster: snapshot.room.poster }} onClose={() => setChange(false)} onChangeVideo={async (v: Partial<Video>) => { await action({ action: "video", ...v }); }}/>}
     {isHost && sourceSetup?.pageUrl === room.videoUrl && sourceSetup.previousUrl === (room.nativeSource?.url ?? null) &&
       <RoomSourceDialog room={room} offset={offset} connected={connected} onClose={() => setSourceSetup(null)}

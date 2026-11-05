@@ -1,4 +1,4 @@
-# Вместе
+# Together Tonight
 
 Приложение для совместного просмотра видео. Инструкции по использованию и развёртыванию в Cloudflare Workers: [README-APP.md](README-APP.md#развёртывание-в-cloudflare-workers).
 

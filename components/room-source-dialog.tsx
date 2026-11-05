@@ -93,7 +93,7 @@ export function RoomSourceDialog({ room, offset, connected, onClose, onApply }: 
         const now = Date.now();
         await extensionRequest("connect", { roomId: room.id, sourceUrl: room.videoUrl, isHost: true, connected,
           playing: room.playing, position: playbackPosition(room, now + offset), revision: room.revision, sampledAt: now }, 10000);
-        if (alive.current) setNotice("Запустите фильм на Киного. Когда появится «Вместе · ведущий», вернитесь сюда и снова нажмите «Взять из Киного».");
+        if (alive.current) setNotice("Запустите фильм на Киного. Когда на плеере появится пометка «ведущий», вернитесь сюда и снова нажмите «Взять из Киного».");
         return;
       }
       const result = await extensionRequest("media-sources", { sourceUrl: room.videoUrl }, 4500);

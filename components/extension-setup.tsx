@@ -7,7 +7,7 @@ import { Logo, Spinner } from "./ui";
 
 export function ExtensionSetup() {
   const { extension, checking, reachable, check } = useKinogoExtension();
-  const outdated = extension.installed && needsExtensionUpdate(extension.version);
+  const outdated = extension.installed && needsExtensionUpdate(extension.version, "0.4.0");
   return <main className="extension-setup"><Logo/>
     <span className="eyebrow">КИНОГО · CHROME И EDGE</span><h1>Расширение для Киного</h1>
     <p>Чтобы взять видеопоток из Киного для плеера комнаты, расширение нужно ведущему. Друзьям достаточно приглашения. Для просмотра в отдельных вкладках Киного расширение устанавливает каждый участник.</p>
@@ -19,7 +19,7 @@ export function ExtensionSetup() {
     </section>
     <a className="button primary" href={`/downloads/vmeste-kinogo-extension.zip?v=${EXTENSION_VERSION}`} download><Download size={17}/>{outdated ? "Скачать обновление" : "Скачать расширение"} {EXTENSION_VERSION}</a>
     <h2>Уже ставили из папки проекта?</h2>
-    <p>Если эта папка обновлена вместе с проектом, достаточно открыть <code>chrome://extensions</code> и нажать ↻ у «Вместе — просмотр Киного». Должна появиться версия <strong>{EXTENSION_VERSION}</strong>. В этой версии уже прописан адрес опубликованного сайта.</p>
+    <p>После обновления файлов откройте <code>chrome://extensions</code> и нажмите ↻ у расширения для Киного. С версии 0.4.1 оно называется «Together Tonight — просмотр Киного». Версия 0.4.0 по-прежнему работает под прежним именем «Вместе».</p>
     <details open={!reachable}><summary>Первая установка или обновление из ZIP</summary>
       <ol><li>Скачайте архив и распакуйте. При обновлении замените файлы в прежней папке расширения.</li>
         <li>Откройте <code>chrome://extensions</code> (в Edge — <code>edge://extensions</code>).</li>

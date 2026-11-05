@@ -17,11 +17,11 @@
     if (message.type !== 'ping' && !/^\/room\/[a-z0-9]{12}\/?$/.test(location.pathname)) return;
     chrome.runtime.sendMessage({ channel: 'vmeste-extension', type: message.type, data: message.data })
       .then(result => post({ type: 'response', requestId: message.requestId, result }))
-      .catch(() => { if (chrome.runtime?.id) post({ type: 'response', requestId: message.requestId, result: { error: 'Откройте значок «Вместе» и нажмите «Восстановить связь».' } }); });
+      .catch(() => { if (chrome.runtime?.id) post({ type: 'response', requestId: message.requestId, result: { error: 'Откройте значок расширения для Киного и нажмите «Восстановить связь».' } }); });
   };
   const fromExtension = (message, sender, reply) => {
     if (sender.id !== chrome.runtime.id || message?.channel !== 'vmeste-extension' || !['control', 'refresh'].includes(message.type)) return;
-    const timer = setTimeout(() => { pending.delete(message.requestId); reply({ ok: false, error: 'Комната не отвечает. Вернитесь во вкладку «Вместе».' }); }, 15000);
+    const timer = setTimeout(() => { pending.delete(message.requestId); reply({ ok: false, error: 'Комната не отвечает. Вернитесь во вкладку комнаты.' }); }, 15000);
     pending.set(message.requestId, { reply, timer });
     post(message);
     return true;

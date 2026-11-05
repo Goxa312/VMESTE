@@ -134,7 +134,7 @@ async function handle(message, sender) {
       const session = sessions[key];
       if (!session || session.roomId !== roomId || session.state.sourceUrl !== message.data?.sourceUrl ||
           !session.state.isHost || !Number.isInteger(session.frameId)) {
-        return { ...status(session), error: 'Откройте Киного из этой комнаты и запустите фильм до появления «Вместе · ведущий».' };
+        return { ...status(session), error: 'Откройте Киного из этой комнаты и запустите фильм до появления пометки «ведущий» на плеере.' };
       }
       const frameId = session.frameId;
       const tab = await chrome.tabs.get(session.mediaTabId).catch(() => null);
@@ -230,7 +230,7 @@ async function handle(message, sender) {
   if (message.type === 'disconnect') { await stop(key); return { ok: true }; }
   if (message.type === 'control') {
     if (sender.frameId !== session.frameId || !session.state.isHost) throw new Error('Управляет только выбранный плеер ведущего');
-    if (!session.state.connected || Date.now() - session.state.sampledAt > 10000) throw new Error('Нет связи с комнатой. Вернитесь во вкладку «Вместе».');
+    if (!session.state.connected || Date.now() - session.state.sampledAt > 10000) throw new Error('Нет связи с комнатой. Вернитесь во вкладку комнаты.');
     const control = validateControl(message.data);
     return { pendingReply: send(session.roomTabId, { channel: 'vmeste-extension', type: 'control',
       requestId: crypto.randomUUID(), roomId: session.roomId, sourceUrl: session.state.sourceUrl, ...control }, { frameId: 0 }).then(reply => {

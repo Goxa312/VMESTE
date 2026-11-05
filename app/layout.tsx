@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
+import { siteName } from "@/lib/brand";
 import "./theme.css";
 export const metadata: Metadata = {
- title: "Вместе — личный кинозал",
+ title: `${siteName} — личный кинозал`,
  description: "Смотрите фильмы с друзьями по приглашению. Добавьте ссылку, покажите вкладку или загрузите свой фильм.",
  icons: { icon: "/favicon.svg" },
 };

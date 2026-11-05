@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize, Rewind, FastForward, RotateCcw, RefreshCw, AlertCircle } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Play, Pause, Volume2, VolumeX, Maximize, Ellipsis, RotateCcw, RefreshCw, AlertCircle } from "lucide-react";
 import { formatTime, playbackPosition, type RoomState } from "@/lib/shared";
 import { directSourceError, mediaFormat, videoUrlError } from "@/lib/video-source";
 import { attachRoomMedia } from "@/lib/media-playback";
 import { Spinner } from "./ui";
-export function Player({ room, isHost, offset, busy, connected, onControl, onChangeVideo }: { room: RoomState; isHost: boolean; offset: number; busy: boolean; connected: boolean; onControl: (playing: boolean, position: number) => Promise<void>; onChangeVideo: () => void }) {
+export function Player({ room, isHost, offset, busy, connected, onControl, onChangeVideo, viewControl }: { viewControl: ReactNode; room: RoomState; isHost: boolean; offset: number; busy: boolean; connected: boolean; onControl: (playing: boolean, position: number) => Promise<void>; onChangeVideo: () => void }) {
   const video = useRef<HTMLVideoElement>(null), shell = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false), [duration, setDuration] = useState(0), [time, setTime] = useState(0), [volume, setVolume] = useState(.8), [muted, setMuted] = useState(true), [error, setError] = useState(""), [buffering, setBuffering] = useState(false), [retry, setRetry] = useState(0), [blocked, setBlocked] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null); const scrubbing = useRef(false);
@@ -67,7 +67,37 @@ export function Player({ room, isHost, offset, busy, connected, onControl, onCha
     {ready && buffering && !playerError && !blocked && <span className="buffering"><Spinner/>Загрузка видео</span>}
     {playerError && <div className="player-overlay player-error" role="alert"><AlertCircle size={29}/><h3>{sourceError ? "Нужна прямая ссылка на видео" : "Видео не открылось"}</h3><p>{playerError}</p>{isHost ? <button className="button primary" onClick={onChangeVideo}>Заменить ссылку</button> : <p>Попросите ведущего заменить ссылку.</p>}{!sourceError && <button className="button subtle" onClick={() => setRetry(r => r + 1)}><RefreshCw size={16}/>Попробовать снова</button>}</div>}
     {!connected && <div className="player-top" role="status"><span><i className="amber-dot"/>Восстанавливаем связь</span></div>}</div>
-    <div className="player-controls"><input className="timeline" type="range" aria-label="Позиция воспроизведения" min={0} max={Number.isFinite(duration) ? duration : 0} step={.1} value={scrub ?? Math.min(time, Number.isFinite(duration) ? duration : time)} disabled={!isHost || !ready || busy || !connected || !duration || !Number.isFinite(duration)} onPointerDown={() => { scrubbing.current = true; }} onChange={e => setScrub(Number(e.target.value))} onPointerUp={e => void seek(Number(e.currentTarget.value))} onPointerCancel={() => { scrubbing.current = false; setScrub(null); }} onKeyUp={e => { if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(e.key)) void seek(Number(e.currentTarget.value)); }} style={{ "--progress": `${duration ? (scrub ?? time) / duration * 100 : 0}%` } as React.CSSProperties}/>
-    <div className="controls-row"><button className="icon-button play-toggle" disabled={!isHost || busy || !connected || !!playerError} title={isHost ? undefined : "Воспроизведением управляет ведущий"} aria-label={room.playing ? "Пауза для всех" : atEnd ? "Смотреть сначала" : "Запустить для всех"} onClick={() => void control(!room.playing)}>{busy ? <Spinner/> : room.playing ? <Pause size={21} fill="currentColor"/> : atEnd ? <RotateCcw size={21}/> : <Play size={21} fill="currentColor"/>}</button><button className="icon-button skip" aria-label="Назад на 10 секунд" disabled={!isHost || !ready || busy || !connected || !!playerError} onClick={() => void seek(Math.max(0, time - 10))}><Rewind size={16} fill="currentColor"/><small>10</small></button><button className="icon-button skip" aria-label="Вперёд на 10 секунд" disabled={!isHost || !ready || busy || !connected || !!playerError} onClick={() => void seek(Math.min(duration || time + 10, time + 10))}><FastForward size={16} fill="currentColor"/><small>10</small></button><span className="video-time">{formatTime(scrub ?? time)}<i>/</i>{formatTime(duration)}</span><div className="control-spacer"/><span className="host-control-label">{isHost ? "Вы ведущий" : "Управляет ведущий"}</span><button className="icon-button" aria-label={muted ? "Включить звук" : "Выключить звук"} onClick={() => setMuted(!muted)}>{muted || volume === 0 ? <VolumeX size={19}/> : <Volume2 size={19}/>}</button><input aria-label="Громкость" className="volume-range" type="range" min="0" max="1" step=".05" value={muted ? 0 : volume} onChange={e => { setVolume(Number(e.target.value)); setMuted(false); }}/><button className="icon-button" aria-label="Полноэкранный режим" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); else void shell.current?.requestFullscreen().catch(() => setError("Полноэкранный режим недоступен в этом браузере.")); }}><Maximize size={19}/></button></div></div>
+    <div className="player-controls">
+      <button className="icon-button play-toggle" disabled={!isHost || busy || !connected || !!playerError} title={isHost ? undefined : "Воспроизведением управляет ведущий"}
+        aria-label={room.playing ? "Пауза для всех" : atEnd ? "Смотреть сначала" : "Запустить для всех"} onClick={() => void control(!room.playing)}>
+        {busy ? <Spinner/> : room.playing ? <Pause size={20} fill="currentColor"/> : atEnd ? <RotateCcw size={19}/> : <Play size={19} fill="currentColor"/>}
+      </button>
+      <span className="video-time">{formatTime(scrub ?? time)} <i>/</i> {formatTime(duration)}</span>
+      <input className="timeline" type="range" aria-label="Позиция воспроизведения" min={0} max={Number.isFinite(duration) ? duration : 0} step={.1}
+        value={scrub ?? Math.min(time, Number.isFinite(duration) ? duration : time)}
+        disabled={!isHost || !ready || busy || !connected || !duration || !Number.isFinite(duration)}
+        onPointerDown={() => { scrubbing.current = true; }} onChange={e => setScrub(Number(e.target.value))}
+        onPointerUp={e => void seek(Number(e.currentTarget.value))} onPointerCancel={() => { scrubbing.current = false; setScrub(null); }}
+        onKeyUp={e => { if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(e.key)) void seek(Number(e.currentTarget.value)); }}
+        style={{ "--progress": `${duration ? (scrub ?? time) / duration * 100 : 0}%` } as React.CSSProperties}/>
+      <button className="icon-button" aria-label={muted ? "Включить звук" : "Выключить звук"} onClick={() => setMuted(!muted)}>
+        {muted || volume === 0 ? <VolumeX size={19}/> : <Volume2 size={19}/>}
+      </button>
+      <button className="icon-button" aria-label="Полноэкранный режим" onClick={() => {
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+        else void shell.current?.requestFullscreen().catch(() => setError("Полноэкранный режим недоступен в этом браузере."));
+      }}><Maximize size={18}/></button>
+      <details className="play-options">
+        <summary aria-label="Настройки плеера"><Ellipsis size={18}/></summary>
+        <div className="play-menu">
+          <label>Громкость<input aria-label="Громкость" className="volume-range" type="range" min="0" max="1" step=".05" value={muted ? 0 : volume} onChange={e => { setVolume(Number(e.target.value)); setMuted(false); }}/></label>
+          {isHost && <div>
+            <button aria-label="Назад на 10 секунд" disabled={!ready || busy || !connected || !!playerError} onClick={() => void seek(Math.max(0,time-10))}>−10 сек</button>
+            <button aria-label="Вперёд на 10 секунд" disabled={!ready || busy || !connected || !!playerError} onClick={() => void seek(Math.min(duration || time+10,time+10))}>+10 сек</button>
+          </div>}
+        </div>
+      </details>
+      {viewControl}
+    </div>
   </div>;
 }

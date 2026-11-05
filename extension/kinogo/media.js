@@ -91,7 +91,7 @@
         createPanel();
         if (!panel) return;
         panel.style.display = Number.isInteger(session.selectedFrameId) && session.selectedFrameId !== session.frameId ? 'none' : '';
-        title.textContent = session.state.isHost ? 'Вместе · ведущий' : 'Вместе · участник';
+        title.textContent = session.state.isHost ? 'Together Tonight · ведущий' : 'Together Tonight · участник';
         selectButton.hidden = !video || !!controller;
         if (!controller) text(Number.isInteger(session.selectedFrameId) ? 'Плеер подключён к комнате' : video ? 'Запустите фильм — подключим автоматически. Короткое видео можно выбрать кнопкой.' : 'Запустите фильм в плеере. Подключение начнётся автоматически.');
       }

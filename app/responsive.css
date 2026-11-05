@@ -1,43 +1,31 @@
-@media(max-width:1050px) {
-  .host-control-label { display:none; }
-  .watch-layout { grid-template-columns:minmax(0,1fr) 245px; gap:16px; }
-  .volume-range { width:40px; }
+@media(max-width:760px) {
+  .room-topbar { min-height:66px; gap:15px; }
+  .room-content { padding-top:22px; }
+  .watch-layout { grid-template-columns:minmax(0,1fr); gap:22px; }
+  .chat-panel { border-left:0; border-top:1px solid var(--line); padding:8px 0 0; height:320px; }
 }
-@media(max-width:800px) {
-  .watch-layout { grid-template-columns:minmax(0,1fr); }
-  .chat-panel { height:395px; }
-  .room-topbar,.room-content { padding-inline:18px; }
-  .room-topbar { min-height:62px; gap:17px; }
-  .connection-status { display:none; }
-}
-@media(max-width:600px) {
-  .room-content { padding-top:17px; }
-  .room-topbar > .text-button span { display:none; }
-  .room-topbar > .text-button { width:36px; }
-  .room-topbar > .button { font-size:13px; padding-inline:10px; }
-  .room-heading { align-items:center; margin-bottom:14px; }
-  .room-heading h1 { font-size:clamp(26px,6vw,34px); }
-  .room-view { flex-direction:column; align-items:end; gap:0; }
-  .room-population { font-size:11px; }
-  .view-toggle { min-height:38px; font-size:12px; gap:6px; }
-  .now-playing { flex-wrap:wrap; gap:5px; padding:17px 0; }
-  .now-playing .button { min-height:40px; }
-  .room-invite label { display:none; }
-  .video-time { gap:5px; font-size:11px; margin-left:3px; }
-  .volume-range { display:none; }
-  .player-controls { padding-inline:7px; }
-  .controls-row { gap:0; }
-  .controls-row .icon-button { width:40px; height:42px; }
-  .player-overlay { padding:13px; gap:7px; }
-  .player-overlay p { font-size:12px; line-height:1.4; }
-  .player-overlay .button { min-height:36px; font-size:13px; }
-  .room-footer { font-size:11px; }
-  .room-page .brand { font-size:30px; }
-  .live-intro { min-height:255px; }
+@media(max-width:520px) {
+  .room-topbar { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:0 12px; padding-block:8px; }
+  .room-topbar .brand { font-size:26px; }
+  .room-film-title { grid-column:1 / -1; order:3; padding:0 0 4px; border:none; font-size:19px; }
+  .invite-action { font-size:14px; gap:6px; }
+  .room-content { padding:18px 14px; }
+  .video-stage { aspect-ratio:16/9; }
+  .player-controls { flex-wrap:wrap; justify-content:space-between; padding:0 5px 3px; gap:0; }
+  .timeline { order:-1; min-width:100%; flex-basis:100%; height:22px; margin:0; }
+  .player-controls > .icon-button,.play-options summary { width:32px; }
+  .view-toggle { padding:0 3px 0 7px; }
+  .video-time { font-size:12px; }
+  .player-overlay { padding:12px; gap:7px; }
+  .player-overlay h3 { font-size:22px; }
+  .player-overlay p { font-size:13px; }
+  .live-intro { padding:20px 12px; }
+  .room-tools { align-items:start; }
+  .room-footer { margin-top:12px; font-size:13px; }
 }
 @media(max-width:370px) {
-  .room-topbar,.room-content { padding-inline:12px; }
-  .room-topbar { gap:8px; }
-  .controls-row .icon-button { width:36px; }
-  .skip small,.video-time { font-size:10px; }
+  .room-topbar .brand,.cinema-header .brand { font-size:23px; }
+  .cinema-header .brand { width:min-content; line-height:.95; }
+  .invite-action { font-size:13px; }
+  .player-controls .view-toggle { font-size:12px; }
 }

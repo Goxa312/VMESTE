@@ -56,7 +56,7 @@ export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRef
     finally { setBusy(false); }
   }
   return <section className="player kinogo-player" aria-label="Совместный просмотр Киного">
-    <h2>Плеер «Вместе»</h2>
+    <h2>Плеер комнаты</h2>
     <p>{isHost ? "Подключите видео один раз. Друзья смогут смотреть его в этой комнате по приглашению." : "Когда ведущий подключит видео, плеер появится здесь автоматически."}</p>
     {isHost && <button className="button primary" onClick={onChooseSource}>Смотреть в комнате</button>}
     <details className="kinogo-external" open={extension.connected || undefined}><summary>Просмотр на Киного через расширение</summary>
@@ -76,7 +76,7 @@ export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRef
       <button className="button subtle" disabled={checking} onClick={check}>{checking ? <Spinner/> : <RefreshCw size={16}/>}Проверить подключение</button>
       <a className={`button ${updateRequired ? "primary" : "subtle"}`} href="/kinogo-extension" target="_blank" rel="noreferrer">{updateRequired ? `Обновить до ${EXTENSION_VERSION}` : "Установка и помощь"}<ExternalLink size={16}/></a>
     </div>}
-    {!reachable && !checking && <p className="kinogo-hint">Уже установлено? Откройте значок «Вместе» в Chrome и нажмите «Восстановить связь». Для старой копии из папки проекта нажмите ↻ на странице расширений.</p>}
+    {!reachable && !checking && <p className="kinogo-hint">Уже установлено? Откройте расширение для Киного в Chrome и нажмите «Восстановить связь». Для старой копии из папки проекта нажмите ↻ на странице расширений.</p>}
     <details className="kinogo-help"><summary>Если что-то не подключается</summary>
       <p>Если Киного остаётся пустым при повторном открытии, обновите расширение до {EXTENSION_VERSION}, откройте его значок и один раз включите «Автовосстановление Киного». При зависании оно сбросит данные только Киного и повторит загрузку. Возможен выход из аккаунта Киного.</p>
       <p>Обе вкладки должны быть в одном профиле Chrome или Edge. Для инкогнито нужно отдельно разрешить работу расширения. На другом компьютере расширение тоже нужно установить.</p>

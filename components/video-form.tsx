@@ -18,6 +18,9 @@ export function VideoForm({ mode, selected, initialTab, initialUrl, uploadTarget
   const [tab, setTab] = useState<Tab>(initialTab || ((selected?.sourceMode === "upload" || selected?.sourceMode === "local") ? "file" : "link"));
   const [name, setName] = useState(() => typeof window !== "undefined" ? readLocal("vm-name", "") : "");
   const [title, setTitle] = useState(selected?.title || ""), [url, setUrl] = useState((selected?.sourceMode === "upload" || selected?.sourceMode === "local") ? "" : selected?.url || initialUrl || "");
+  const [editSource, setEditSource] = useState(false);
+  const hasInitialSource = Boolean(initialUrl?.trim() || selected?.url);
+  const reviewSource = mode === "create" && tab === "link" && hasInitialSource && !editSource && !videoUrlError(url);
   const [kind, setKind] = useState<Kind>(selected?.kind || "film"), [roomTitle, setRoomTitle] = useState("Киновечер с друзьями");
   const [format, setFormat] = useState<"auto" | "direct" | "page">(selected?.sourceMode === "direct" || selected?.sourceMode === "page" ? selected.sourceMode : "auto");
   const [file, setFile] = useState<File>(), [limit, setLimit] = useState<number>(), [dragging, setDragging] = useState(false);
@@ -70,12 +73,15 @@ export function VideoForm({ mode, selected, initialTab, initialUrl, uploadTarget
     } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Не удалось сохранить фильм."); }
     finally { if (!controller.signal.aborted) { setBusy(false); setProgress(null); } }
   }
-  return <Modal title={mode === "create" ? "Создать комнату" : mode === "add" ? "Добавить в библиотеку" : "Выбрать фильм"} caption={mode === "add" ? "Сохраните ссылку, чтобы вернуться к фильму позже." : mode === "change" ? "Новый фильм появится у всех в этой комнате." : "После создания комнаты вы получите ссылку для друзей."} onClose={close}>
+  return <Modal title={mode === "create" ? "Новая комната" : mode === "add" ? "Добавить в библиотеку" : "Выбрать фильм"} caption={mode === "add" ? "Сохраните ссылку, чтобы вернуться к фильму позже." : mode === "change" ? "Новый фильм появится у всех в этой комнате." : "После создания комнаты вы получите ссылку для друзей."} onClose={close}>
     <form onSubmit={submit} className="stack-form source-form">
-      {mode !== "add" && <div className="source-tabs" role="group" aria-label="Источник фильма">
+      {mode !== "add" && !reviewSource && <div className="source-tabs" role="group" aria-label="Источник фильма">
         <button type="button" aria-pressed={tab === "link"} disabled={busy} onClick={() => { setTab("link"); setError(""); }}>По ссылке</button>
         <button type="button" aria-pressed={tab === "file"} disabled={busy} onClick={() => { setTab("file"); setError(""); }}>С компьютера</button></div>}
-      {tab === "link" ? <><label>Ссылка на фильм<input type="url" required maxLength={4000} value={url} disabled={busy} onChange={e => setUrl(e.target.value)} placeholder="https://…" /></label>
+      {reviewSource ? <div className="source-review">
+        <div><small>Источник фильма</small><strong>{selected?.url === url ? selected.title : new URL(url).hostname}</strong></div>
+        <button type="button" className="text-link" disabled={busy} onClick={() => setEditSource(true)}>Изменить</button>
+      </div> : tab === "link" ? <><label>Ссылка на фильм<input type="url" required maxLength={4000} value={url} disabled={busy} onChange={e => setUrl(e.target.value)} placeholder="https://…" /></label>
         <p className="field-hint">{url && linkMode(url) === "direct" ? "Этот адрес откроется в общем плеере." : "Прямая ссылка откроется в плеере. Страницу с фильмом можно показать из вкладки."}</p></> :
         <><input className="visually-hidden" type="file" ref={picker} accept=".mp4,.m4v,.webm,.mov" aria-label="Выбрать видеофайл" tabIndex={-1} onChange={e => choose(e.target.files?.[0])}/>
         <button type="button" disabled={busy} className={`file-drop ${dragging ? "dragging" : ""}`} onClick={() => picker.current?.click()}
@@ -84,9 +90,10 @@ export function VideoForm({ mode, selected, initialTab, initialUrl, uploadTarget
         {!file && <p className="field-hint file-formats">MP4, WebM, MOV{limit ? ` · загрузка до ${fileSize(limit)}, более крупные файлы — из браузера` : ""}</p>}
         {liveFile && limit && <p className="field-hint" role="status">Файл больше лимита загрузки ({fileSize(limit)}). Вы можете показать его из своего браузера. Оставьте комнату открытой до конца просмотра.</p>}
         {progress !== null && <div className="upload-progress" role="status"><progress max={100} value={progress}/><span>Загружено {progress}%</span></div>}</>}
-      <div className={mode === "create" ? "form-row" : ""}>{mode === "create" && <label>Ваше имя<input required disabled={busy} maxLength={24} value={name} onChange={e => setName(e.target.value)} placeholder="Как к вам обращаться?"/></label>}
-        <label>Название фильма<input disabled={busy} maxLength={100} value={title} onChange={e => setTitle(e.target.value)} placeholder="Можно оставить пустым"/></label></div>
+      <div className={mode === "create" ? "form-row" : ""}>{mode === "create" && <label>Ваше имя<input autoFocus={reviewSource} required disabled={busy} maxLength={24} value={name} onChange={e => setName(e.target.value)} placeholder="Как к вам обращаться?"/></label>}
+        {!reviewSource && <label>Название фильма<input disabled={busy} maxLength={100} value={title} onChange={e => setTitle(e.target.value)} placeholder="Можно оставить пустым"/></label>}</div>
       <details className="form-options"><summary>{mode === "create" ? "Настройки комнаты и фильма" : "Настройки фильма"} <ChevronDown size={15}/></summary>
+        {reviewSource && <label>Название фильма<input maxLength={100} value={title} onChange={e => setTitle(e.target.value)} placeholder="Можно оставить пустым"/></label>}
         {mode === "create" && <label>Название комнаты<input maxLength={80} value={roomTitle} onChange={e => setRoomTitle(e.target.value)}/></label>}
         {tab === "link" && <label>Как открыть ссылку<select value={format} onChange={e => setFormat(e.target.value as typeof format)}><option value="auto">Определить автоматически</option><option value="direct">Прямой адрес видео</option><option value="page">Показ вкладки с сайтом</option></select></label>}
         <label>Раздел<select value={kind} onChange={e => setKind(e.target.value as Kind)}>{Object.entries(kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></details>

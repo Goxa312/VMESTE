@@ -87,7 +87,7 @@ try {
   await guest.goto(link);
   await guest.getByLabel("Как вас зовут?").fill("Зритель теста");
   await guest.getByRole("button", { name: "Войти в комнату", exact: true }).click();
-  await guest.getByRole("button", { name: "Пригласить друзей" }).waitFor();
+  await guest.getByRole("button", { name: "Пригласить друга" }).waitFor();
   const token = await host.evaluate(key => JSON.parse(localStorage.getItem("vm-room-" + key)), code);
   async function call(path, data) {
     return fetch(base + roomPath + path, {

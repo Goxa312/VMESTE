@@ -35,7 +35,7 @@ const frames = async page => {
 async function enter(page, url, name) {
   await page.goto(url); await page.getByLabel("Как вас зовут?").fill(name);
   await page.getByRole("button",{name:"Войти в комнату",exact:true}).click();
-  await page.getByRole("button",{name:"Пригласить друзей"}).waitFor();
+  await page.getByRole("button",{name:"Пригласить друга"}).waitFor();
 }
 // Use a complete, HTTP/1.1 WebSocket upgrade: the public edge rejects malformed
 // Upgrade requests before the Worker's membership check can run.

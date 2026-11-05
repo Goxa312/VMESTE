@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Вместе — просмотр Киного",
-  "version": "0.4.0",
-  "description": "Синхронизация выбранного HTML5-видео на Киного с открытой комнатой Вместе.",
+  "name": "Together Tonight — просмотр Киного",
+  "version": "0.4.1",
+  "description": "Синхронизация выбранного HTML5-видео на Киного с открытой комнатой Together Tonight.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "scripting", "alarms"],
   "optional_permissions": ["browsingData"],
@@ -21,5 +21,5 @@
       "run_at": "document_start"
     }
   ],
-  "action": { "default_title": "Вместе — состояние просмотра", "default_popup": "popup.html" }
+  "action": { "default_title": "Together Tonight — состояние просмотра", "default_popup": "popup.html" }
 }

@@ -24,8 +24,8 @@
   .room-footer { margin-top:12px; font-size:13px; }
 }
 @media(max-width:370px) {
-  .room-topbar .brand,.cinema-header .brand { font-size:23px; }
-  .cinema-header .brand { width:min-content; line-height:.95; }
+  .room-topbar .brand { font-size:25px; }
+  .cinema-header .brand { font-size:27px; }
   .invite-action { font-size:13px; }
   .player-controls .view-toggle { font-size:12px; }
 }

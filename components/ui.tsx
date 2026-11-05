@@ -3,7 +3,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { X, LoaderCircle } from "lucide-react";
 import { siteName } from "@/lib/brand";
 export function Logo() {
-  return <a className="brand" href="/" aria-label={`${siteName} — на главную`}>{siteName}</a>;
+  return <a className="brand" href="/" aria-label={`${siteName} — на главную`}><span>together</span>{" "}<span>tonight</span></a>;
 }
 export function Spinner() { return <LoaderCircle size={18} className="spin" />; }
 export function Modal({ title, caption, children, onClose }: { title: string; caption?: string; children: ReactNode; onClose: () => void }) {

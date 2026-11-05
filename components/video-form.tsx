@@ -35,7 +35,7 @@ export function VideoForm({ mode, selected, initialTab, initialUrl, uploadTarget
     if (!file) return;
     setError(""); setFile(undefined);
     if (!videoMime(file.name)) { setError("Выберите видео в формате MP4, WebM или MOV."); return; }
-    setFile(file); setTitle(file.name.replace(/\.[^.]+$/, "").slice(0, 100));
+    setFile(file); if (!selected || selected.url || !title.trim()) setTitle(file.name.replace(/\.[^.]+$/, "").slice(0, 100));
   }
   function close() { abort.current?.abort(); onClose(); }
   async function submit(e: FormEvent) {
@@ -46,7 +46,8 @@ export function VideoForm({ mode, selected, initialTab, initialUrl, uploadTarget
       sourceMode === "direct" ? directSourceError(url.trim()) : videoUrlError(url.trim());
     if (invalid) { setError(invalid); return; }
     const videoTitle = title.trim() || (tab === "link" ? new URL(url).hostname : "Мой фильм");
-    const video = { title: videoTitle, url: tab === "file" ? "" : url.trim(), kind, sourceMode, poster: tab === "link" ? demos.find(d => d.url === url)?.poster || selected?.poster && selected.url === url && selected.poster || "" : "" } as const;
+    const poster = (selected && (!selected.url || (tab === "link" && selected.url === url.trim())) ? selected.poster : "") || (tab === "link" ? demos.find(d => d.url === url.trim())?.poster : "") || "";
+    const video = { title: videoTitle, url: tab === "file" ? "" : url.trim(), kind, sourceMode, poster } as const;
     setBusy(true); setError(""); const controller = new AbortController(); abort.current = controller;
     try {
       const reusingRoom = !!created.current;
@@ -73,7 +74,8 @@ export function VideoForm({ mode, selected, initialTab, initialUrl, uploadTarget
     } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Не удалось сохранить фильм."); }
     finally { if (!controller.signal.aborted) { setBusy(false); setProgress(null); } }
   }
-  return <Modal title={mode === "create" ? "Новая комната" : mode === "add" ? "Добавить в библиотеку" : "Выбрать фильм"} caption={mode === "add" ? "Сохраните ссылку, чтобы вернуться к фильму позже." : mode === "change" ? "Новый фильм появится у всех в этой комнате." : "После создания комнаты вы получите ссылку для друзей."} onClose={close}>
+  const needsFilm = mode === "create" && selected && !selected.url;
+  return <Modal title={needsFilm ? selected.title : mode === "create" ? "Новая комната" : mode === "add" ? "Добавить в библиотеку" : "Выбрать фильм"} caption={needsFilm ? "Добавьте ссылку на этот фильм или выберите видео с компьютера. Затем пригласите друзей в комнату." : mode === "add" ? "Сохраните ссылку, чтобы вернуться к фильму позже." : mode === "change" ? "Новый фильм появится у всех в этой комнате." : "После создания комнаты вы получите ссылку для друзей."} onClose={close}>
     <form onSubmit={submit} className="stack-form source-form">
       {mode !== "add" && !reviewSource && <div className="source-tabs" role="group" aria-label="Источник фильма">
         <button type="button" aria-pressed={tab === "link"} disabled={busy} onClick={() => { setTab("link"); setError(""); }}>По ссылке</button>

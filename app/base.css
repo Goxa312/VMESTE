@@ -1,10 +1,10 @@
 :root {
   color-scheme:dark;
-  --bg:#201d1c; --panel:#262322; --raised:#302b29; --screen:#080808;
-  --line:#4d4743; --rule:#a29a8f; --field-line:#a49c91; --text:#f1ebe0; --muted:#c2b9af;
-  --accent:#ef895f; --ink:#211811; --corner:4px; --gutter:clamp(18px,3.9vw,62px);
-  --sans:"Source Sans 3","Segoe UI",Arial,sans-serif;
-  --display:Georgia,"Times New Roman",serif; --numeric:var(--sans);
+  --bg:#161513; --panel:#221f1c; --raised:#302d29; --screen:#080808;
+  --line:#44403a; --rule:#655e54; --field-line:#716b61; --text:#f3eee5; --muted:#bcb7af;
+  --accent:#dda45c; --ink:#19150f; --corner:6px; --gutter:clamp(18px,4.3vw,72px);
+  --sans:"Manrope","Segoe UI",Arial,sans-serif;
+  --display:"Cormorant Garamond",Georgia,"Times New Roman",serif; --numeric:var(--sans);
   font-family:var(--sans); font-synthesis:none;
 }
 * { box-sizing:border-box; }
@@ -20,11 +20,12 @@ h1,h2,h3,p { margin:0; }
 img { display:block; max-width:100%; }
 svg { flex-shrink:0; stroke-width:1.6; }
 button svg { pointer-events:none; }
-.brand { display:inline-flex; align-items:center; width:max-content; min-height:44px; color:var(--text); font:italic 400 clamp(31px,3.15vw,44px)/1 "PT Serif",Georgia,serif; letter-spacing:-.043em; }
+.brand { display:inline-flex; flex-direction:column; justify-content:center; width:max-content; min-height:44px; color:var(--text); font:500 clamp(29px,2.32vw,36px)/.78 var(--display); letter-spacing:-.035em; }
+.brand span { display:block; }
 .eyebrow { font-weight:500; color:var(--muted); }
 .button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:0 17px; border-radius:var(--corner); font-size:14px; font-weight:550; white-space:nowrap; border:1px solid transparent; }
 .button.primary { background:var(--accent); color:var(--ink); }
-.button.primary:hover:not(:disabled) { background:#ffa07c; }
+.button.primary:hover:not(:disabled) { background:#eab675; }
 .button.subtle,.text-button { color:var(--muted); }
 .button.subtle:hover:not(:disabled),.text-button:hover:not(:disabled) { color:var(--text); }
 .button.outline,.button.glass { color:var(--text); border-color:var(--field-line); background:transparent; }

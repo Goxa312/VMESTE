@@ -55,10 +55,9 @@ try {
   // Pretend only this one host-owned test page is the film; no third-party video is accessed.
   await hostContext.route(filmUrl, r => r.fulfill({ contentType:"text/html", body:'<title>VmesteRelayFixture</title><main></main><script>let n=0;setInterval(()=>{document.body.style.background=n++%2?"#f98":"#345";document.querySelector("main").textContent=n},100)</script>' }));
   await host.goto(base);
-  await host.locator(".loading-small").waitFor({ state:"hidden" }); // wait until the room form is hydrated
-  await host.getByRole("textbox",{name:"Ссылка на фильм"}).fill(filmUrl);
-  await host.getByRole("button",{name:"Создать комнату",exact:true}).click();
+  await host.getByRole("button",{name:"Свой фильм",exact:true}).click();
   const dialog=host.getByRole("dialog");
+  await dialog.getByLabel("Ссылка на фильм").fill(filmUrl);
   await dialog.getByLabel("Ваше имя").fill("Ведущий теста");
   await dialog.getByRole("button",{name:"Создать комнату",exact:true}).click();
   await host.waitForURL(/\/room\/[a-f0-9]+$/); const link=host.url(), code=new URL(link).pathname.split("/").pop();

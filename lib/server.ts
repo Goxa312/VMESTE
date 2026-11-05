@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { program } from "./program";
 import { demos, type Kind } from "./shared";
 import { directSourceError, isKinogoPage, linkMode, videoUrlError, type SourceMode } from "./video-source";
 export function db() { if (!env.DB) throw new Error("Database unavailable"); return env.DB; }
@@ -17,7 +18,7 @@ export function videoInput(v: Record<string, unknown>) {
   const urlError = sourceMode === "upload" || sourceMode === "local" ? null : sourceMode === "direct" ? directSourceError(url) : videoUrlError(url);
   if (urlError) throw new ApiError(urlError);
   const kind: Kind = v.kind === "series" || v.kind === "anime" ? v.kind : "film";
-  const poster = typeof v.poster === "string" && (/^\/images\/[a-z]+\.jpg$/.test(v.poster) || demos.some(film => film.poster === v.poster)) ? v.poster : "";
+  const poster = typeof v.poster === "string" && (/^\/images\/[a-z]+\.jpg$/.test(v.poster) || [...demos, ...program].some(film => film.poster === v.poster)) ? v.poster : "";
   return { title, url, kind, poster, sourceMode };
 }
 export function randomId() { return crypto.randomUUID().replaceAll("-", ""); }

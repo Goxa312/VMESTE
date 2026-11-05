@@ -1,8 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Check, Link2, SendHorizontal, Users, WifiOff, X, Clapperboard } from "lucide-react";
-import { api, readLocal, rememberRoom, RequestError, saveLocal } from "@/lib/client";
-import type { Snapshot, Video } from "@/lib/shared";
+import { api, readLocal, readRecentRooms, recordViewing, rememberRoom, RequestError, saveLocal } from "@/lib/client";
+import { playbackPosition, type Snapshot, type Video } from "@/lib/shared";
 import { Logo, Spinner, Empty } from "./ui";
 import { TabPlayer } from "./tab-player";
 import { Player } from "./player";
@@ -38,16 +38,46 @@ export default function Room({ code }: { code: string }) {
     if (mediaUrl) void extensionRequest("disconnect", { forRoomPlayer: true }).catch(() => {});
   }, [code, mediaUrl]);
   const latest = useRef<Snapshot | undefined>(undefined), chatEnd = useRef<HTMLDivElement>(null), chatList = useRef<HTMLDivElement>(null), busyRef = useRef(false), lastSeenMessage = useRef<number | undefined>(undefined);
+  const watchMain = useRef<HTMLDivElement>(null);
+  const serverOffset = useRef(0);
   const apply = useCallback((data: Snapshot, start: number) => {
     if (latest.current && data.room.revision < latest.current.room.revision) return;
-    latest.current = data; setSnapshot(data); setOffset(data.serverTime - (start + Date.now()) / 2); setConnected(true);
+    latest.current = data; serverOffset.current = data.serverTime - (start + Date.now()) / 2;
+    setSnapshot(data); setOffset(serverOffset.current); setConnected(true);
   }, []);
   useEffect(() => { setToken(readLocal(`vm-room-${code}`, "")); setName(readLocal("vm-name", "")); setInvite(window.location.href.split("?")[0]); setInitialized(true); }, [code]);
   useEffect(() => {
     if (!token) return; let alive = true, timer: ReturnType<typeof setTimeout>;
-    async function poll() { const start = Date.now(); try { const data = await api<Snapshot>(`/api/rooms/${code}`, token); if (alive) { apply(data, start); setError(""); } } catch (e) { if (alive) { setConnected(false); if (e instanceof RequestError && e.status === 401) { setToken(""); saveLocal(`vm-room-${code}`, ""); } else if (e instanceof RequestError && [404, 410].includes(e.status)) { setError(e.message); setFatal(true); return; } else setError("Связь прервалась. Пытаемся подключиться снова…"); } } if (alive) timer = setTimeout(poll, document.hidden ? 2000 : 850); }
+    async function poll() { const start = Date.now(); try { const data = await api<Snapshot>(`/api/rooms/${code}`, token); if (alive) { apply(data, start); setError(""); } } catch (e) { if (alive) { setConnected(false); if (e instanceof RequestError && e.status === 401) { setToken(""); saveLocal(`vm-room-${code}`, ""); } else if (e instanceof RequestError && [404, 410].includes(e.status)) { setError(e.message); setFatal(true); saveLocal("vm-recent", readRecentRooms().filter(room => room.id !== code)); return; } else setError("Связь прервалась. Пытаемся подключиться снова…"); } } if (alive) timer = setTimeout(poll, document.hidden ? 2000 : 850); }
     void poll(); return () => { alive = false; clearTimeout(timer); };
   }, [token, code, apply]);
+  const viewing = snapshot?.room.id;
+  useEffect(() => {
+    if (!viewing || !token) return;
+    function record(promote = false) {
+      const room = latest.current?.room;
+      if (!room || room.id !== code) return;
+      const duration = watchMain.current?.querySelector<HTMLVideoElement>(".video-stage video")?.duration;
+      recordViewing(room, playbackPosition(room, Date.now() + serverOffset.current), duration, promote);
+    }
+    record(true);
+    const checkpoint = () => record();
+    const player = watchMain.current;
+    const interval = setInterval(checkpoint, 10000);
+    player?.addEventListener("loadedmetadata", checkpoint, true);
+    player?.addEventListener("seeked", checkpoint, true);
+    player?.addEventListener("pause", checkpoint, true);
+    document.addEventListener("visibilitychange", checkpoint);
+    window.addEventListener("pagehide", checkpoint);
+    return () => {
+      checkpoint(); clearInterval(interval);
+      player?.removeEventListener("loadedmetadata", checkpoint, true);
+      player?.removeEventListener("seeked", checkpoint, true);
+      player?.removeEventListener("pause", checkpoint, true);
+      document.removeEventListener("visibilitychange", checkpoint);
+      window.removeEventListener("pagehide", checkpoint);
+    };
+  }, [code, viewing, token]);
   const lastMessage = snapshot?.messages.at(-1)?.id;
   useEffect(() => { const box = chatList.current; if (box && (lastSeenMessage.current === undefined || box.scrollHeight - box.clientHeight - box.scrollTop < 120 || latest.current?.messages.at(-1)?.participantId === latest.current?.me)) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" }); lastSeenMessage.current = lastMessage; }, [lastMessage, chatTab]);
   useEffect(() => { if (copied) { const timer = setTimeout(() => setCopied(false), 2500); return () => clearTimeout(timer); } }, [copied]);
@@ -107,7 +137,7 @@ export default function Room({ code }: { code: string }) {
         <button aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={16}/></button>
       </div>}
       <div className="watch-layout">
-        <div className="watch-main">
+        <div className="watch-main" ref={watchMain}>
           {roomPlayer}
           {(needsCapture || awaitingFile) && <div className="live-view-bar">{viewControl}</div>}
         </div>

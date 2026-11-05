@@ -9,7 +9,7 @@
 .modal .muted,.join-card > p { font-size:14px; line-height:1.55; margin-top:9px; color:var(--muted); }
 .stack-form { display:flex; flex-direction:column; gap:17px; margin-top:23px; }
 .stack-form label { display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--text); font-weight:500; }
-.stack-form :is(input,select) { min-width:0; width:100%; min-height:44px; padding:10px 12px; border:1px solid var(--field-line); border-radius:var(--corner); background:#111212; color:var(--text); font-size:15px; }
+.stack-form :is(input,select) { min-width:0; width:100%; min-height:44px; padding:10px 12px; border:1px solid var(--field-line); border-radius:var(--corner); background:#181715; color:var(--text); font-size:15px; }
 .stack-form input::placeholder { color:#9e9f9a; }
 .stack-form :is(input,select):focus { border-color:var(--accent); }
 .stack-form .visually-hidden { min-height:0; }
@@ -25,7 +25,7 @@
 .source-tabs { display:flex; gap:25px; border-bottom:1px solid var(--line); margin:0 0 1px; }
 .source-tabs button { padding:0 0 1px; min-height:42px; margin-bottom:-1px; border-bottom:2px solid transparent; color:var(--muted); font-size:14px; }
 .source-tabs button[aria-pressed=true] { border-bottom-color:var(--accent); color:var(--text); }
-.file-drop { display:flex; align-items:center; gap:15px; padding:22px 18px; min-width:0; text-align:left; background:#141515; border:1px dashed var(--field-line); border-radius:var(--corner); }
+.file-drop { display:flex; align-items:center; gap:15px; padding:22px 18px; min-width:0; text-align:left; background:#1c1a17; border:1px dashed var(--field-line); border-radius:var(--corner); }
 .file-drop:hover,.file-drop.dragging { background:var(--raised); border-color:var(--accent); }
 .file-drop svg { color:var(--muted); }
 .file-description { display:grid; min-width:0; gap:5px; }

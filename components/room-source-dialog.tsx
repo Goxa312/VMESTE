@@ -6,38 +6,58 @@ import { formatTime, playbackPosition, type RoomState } from "@/lib/shared";
 import { directSourceError, mediaFormat, type DirectSource } from "@/lib/video-source";
 import { Modal, Spinner } from "./ui";
 
-function Preview({ source, onReady }: { source: DirectSource; onReady: (ready: boolean) => void }) {
+function Preview({ source, onReady, onTryAnother }: { source: DirectSource; onReady: (ready: boolean) => void; onTryAnother?: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const [message, setMessage] = useState("Загружаем первый кадр…");
+  const [failed, setFailed] = useState(false), [slow, setSlow] = useState(false);
   useEffect(() => {
     const element = video.current!;
+    let terminal = false, verified = false;
     setMessage("Загружаем первый кадр…");
+    setFailed(false); setSlow(false);
     onReady(false);
-    function failed(text: string) {
+    function reportFailure(text: string) {
+      terminal = true;
       clearTimeout(timer);
+      setFailed(true); setSlow(false);
       onReady(false);
       setMessage(text);
     }
     function check() {
-      if (element.readyState < 2 || !Number.isFinite(element.duration) || element.duration <= 0) return;
+      if (terminal || element.error || element.readyState < 2) return;
+      if (!element.videoWidth || !element.videoHeight || !Number.isFinite(element.duration) || element.duration <= 0) {
+        verified = false;
+        onReady(false);
+        setMessage("Ждём видеокадр и длительность фильма…");
+        return;
+      }
+      verified = true;
       clearTimeout(timer);
+      setSlow(false);
       onReady(true);
       setMessage(`Видео открылось · ${formatTime(element.duration)}. Проверьте фильм и озвучку.`);
     }
-    const timer = setTimeout(() => failed("Видео пока не загрузилось. Проверьте адрес или выберите другой поток."), 15000);
+    const timer = setTimeout(() => setSlow(true), 15000);
     element.addEventListener("loadeddata", check);
     element.addEventListener("canplay", check);
     element.addEventListener("durationchange", check);
-    const detach = attachRoomMedia(element, source, failed);
+    element.addEventListener("resize", check);
+    const detach = attachRoomMedia(element, source, reportFailure, text => {
+      if (!terminal && !verified) setMessage(text);
+    });
     return () => {
       clearTimeout(timer);
       element.removeEventListener("loadeddata", check);
       element.removeEventListener("canplay", check);
       element.removeEventListener("durationchange", check);
+      element.removeEventListener("resize", check);
       detach();
     };
   }, [source, onReady]);
-  return <div className="source-preview"><video ref={video} controls playsInline preload="auto" aria-label="Проверка фильма"/><p role="status">{message}</p></div>;
+  return <div className="source-preview"><video ref={video} controls playsInline preload="auto" aria-label="Проверка фильма"/>
+    <p role="status">{message}{slow && " Загрузка занимает больше обычного."}</p>
+    {(failed || slow) && onTryAnother && <button type="button" className="button subtle" onClick={onTryAnother}>Проверить другой найденный поток</button>}
+  </div>;
 }
 
 type Props = {
@@ -93,6 +113,8 @@ export function RoomSourceDialog({ room, offset, connected, onClose, onApply }: 
     catch (error) { if (alive.current) setNotice(error instanceof Error ? error.message : "Не удалось сменить плеер."); }
     finally { if (alive.current) setWorking(false); }
   }
+  const previewIndex = candidates.findIndex(item => item.url === preview?.url);
+  const nextCandidate = candidates.length > 1 && previewIndex >= 0 ? candidates[(previewIndex + 1) % candidates.length] : undefined;
   return <Modal title="Смотреть в комнате" caption="Проверьте фильм и откройте его для всех участников. Друзьям понадобится только ссылка на комнату." onClose={onClose}>
     <div className="stack-form">
       {!room.nativeSource && <div className="source-import"><button className="button subtle" disabled={working || !connected} onClick={() => void importFilm()}>Взять из Киного</button>
@@ -105,7 +127,8 @@ export function RoomSourceDialog({ room, offset, connected, onClose, onApply }: 
       <label>Формат<select disabled={working} value={format} onChange={e => { setFormat(e.target.value as typeof format); setPreview(null); setReady(false); }}>
         <option value="auto">Определить по ссылке</option><option value="file">Видеофайл (MP4, WebM)</option><option value="hls">Плейлист HLS</option></select></label>
       <button className="button subtle" disabled={working || !url.trim()} onClick={() => check({ url: url.trim(), format: format === "auto" ? mediaFormat(url.trim()) : format })}>Проверить видео</button>
-      {preview && <Preview key={preview.format + preview.url} source={preview} onReady={setReady}/>}
+      {preview && <Preview key={preview.format + preview.url} source={preview} onReady={setReady}
+        onTryAnother={nextCandidate ? () => select(nextCandidate) : undefined}/>}
       {notice && <p className="source-notice" role="status">{notice}</p>}
       <button className="button primary full" disabled={!ready || !preview || working || !connected} onClick={() => void apply(preview)}>{working ? <Spinner/> : "Открыть для всех"}</button>
       {room.nativeSource && <button className="text-button" disabled={working || !connected} onClick={() => void apply(null)}>Вернуться к просмотру на Киного</button>}

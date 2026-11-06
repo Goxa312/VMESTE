@@ -54,7 +54,8 @@ export async function GET(req: Request, context: Context) {
     const { room, me, host, session, query } = await access(req, code);
     requireSession(session, room.share_id);
     if (query.has("ice")) {
-      const response = json({ ...await iceServers(), roomRelay: Boolean(env.ROOM_RELAY) });
+      const config = query.get("ice") === "refresh" ? {} : await iceServers();
+      const response = json({ ...config, roomRelay: Boolean(env.ROOM_RELAY) });
       if (env.ROOM_RELAY) {
         const secure = new URL(req.url).protocol === "https:" ? "; Secure" : "";
         response.headers.append("Set-Cookie", `vm-live=${req.headers.get("Authorization")!.slice(7)}; Path=/api/rooms/${code}/relay; HttpOnly; SameSite=Strict; Max-Age=21600${secure}`);

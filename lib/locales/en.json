@@ -636,5 +636,8 @@
   "Скрыть повтор пароля": "Hide password confirmation",
   "Осталось {0} мин": "{0} min left",
   "Убрать из списка комнат": "Remove from list",
+  "Нет сети. Продолжим показ после подключения.": "You’re offline. The broadcast will resume when you reconnect.",
+  "Ждём следующий кадр от ведущего…": "Waiting for the host’s next frame…",
+  "Просмотр на паузе у вас.": "Playback is paused on your device.",
   "Выделите и скопируйте код вручную.": "Select the code and copy it manually."
 }

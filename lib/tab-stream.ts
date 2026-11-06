@@ -1,5 +1,6 @@
 import { api, RequestError } from "./client";
 import { serveRoomRelay, watchRoomRelay } from "./tab-relay";
+import { createVideoProbe, type BroadcastPlayback, type CaptureHealth } from "./broadcast-health";
 
 type RoomConfig = RTCConfiguration & { roomRelay?: boolean };
 
@@ -13,7 +14,8 @@ type Callbacks = {
   onConnected?: () => void;
   preferRoomRelay?: boolean;
   onRelaySource: (url: string | null) => void;
-  playback: (source: MediaStream | string) => "waiting" | "playing" | "blocked";
+  playback: (source: MediaStream | string) => BroadcastPlayback;
+  captureHealth: CaptureHealth;
 };
 
 const pollInterval = 1150;
@@ -70,22 +72,51 @@ function hasRelay(config: RTCConfiguration) {
   return config.iceServers?.some(server => [server.urls].flat().some(url => /^turns?:/.test(url))) ?? false;
 }
 
+// New peers can ask the broadcaster whether its video is still advancing. Old peers
+// simply ignore the optional channel and use the ordinary reconnection timeout.
+function answerVideoProbes(pc: RTCPeerConnection, captureHealth: CaptureHealth) {
+  let channel: RTCDataChannel;
+  try { channel = pc.createDataChannel("room-video-health"); }
+  catch { return; }
+  let lastCheck = -Infinity;
+  channel.onmessage = async ({data}) => {
+    if (data !== "check" || performance.now() - lastCheck < 1000) return;
+    lastCheck = performance.now();
+    const sender = pc.getSenders().find(s => s.track?.kind === "video" && s.track.readyState === "live");
+    let frames = 0;
+    if (sender) {
+      try {
+        const stats = await sender.getStats();
+        stats.forEach(stat => { if (stat.type === "outbound-rtp" && (stat.kind ?? stat.mediaType) === "video") frames += stat.framesEncoded ?? 0; });
+      } catch { /* The capture element can also report advancing frames. */ }
+    }
+    if (channel.readyState === "open") channel.send(sender ? captureHealth(frames) : "health:lost");
+  };
+}
+
 export function connectTab(code: string, session: string, token: string, stream: MediaStream | null, callbacks: Callbacks) {
   const base = `/api/rooms/${code}/signal?session=${encodeURIComponent(session)}`;
   const controller = new AbortController();
   const { signal } = controller;
   const get = <T,>(suffix = "") => api<T>(base + suffix, token, undefined, undefined, signal);
   const send = (data: Record<string, unknown>) => api(base, token, data, undefined, signal);
+  const refreshAccess = async () => {
+    try { await get("&ice=refresh"); }
+    catch (error) { if (error instanceof RequestError) callbacks.onHttpError(error.status); throw error; }
+  };
   const peers = new Map<string, RTCPeerConnection>();
   let attempt = crypto.randomUUID(), previousAttempt: string | undefined;
   let relayRequested = Boolean(callbacks.preferRoomRelay), servingRelay = false, relayAudience = false;
   let joined = false, joinSent = false, joinedAt = 0, lastBeat = 0, startedIce = 0, retries = 0;
   let firstConnectionAt = 0, receivedVideo: MediaStream | null = null, firstFrame = false;
+  const probe = createVideoProbe();
+  let healthChannel: RTCDataChannel | undefined;
 
   function closePeer(key: string) {
     const pc = peers.get(key);
     peers.delete(key);
-    if (pc) { pc.onconnectionstatechange = null; pc.ontrack = null; pc.close(); }
+    if (pc) { pc.onconnectionstatechange = null; pc.ontrack = null; pc.ondatachannel = null; pc.close(); }
+    if (!stream) { healthChannel = undefined; probe.reset(); }
   }
 
   function connection(key: string, config: RTCConfiguration) {
@@ -97,6 +128,12 @@ export function connectTab(code: string, session: string, token: string, stream:
         receivedVideo = remote;
         callbacks.onStream(remote);
       }
+    };
+    if (stream) answerVideoProbes(pc, callbacks.captureHealth);
+    else pc.ondatachannel = ({channel}) => {
+      if (channel.label !== "room-video-health") return;
+      healthChannel = channel;
+      channel.onmessage = ({data}) => { if (channel === healthChannel && typeof data === "string") probe.receive(data); };
     };
     if (remote) pc.ontrack = ({ track }) => { remote.addTrack(track); showTracks(); };
     pc.onconnectionstatechange = () => {
@@ -220,14 +257,20 @@ export function connectTab(code: string, session: string, token: string, stream:
       await send({ action: "answer", attempt, sdp });
     } else if (pc.connectionState === "connected") {
       const state = receivedVideo ? callbacks.playback(receivedVideo) : "waiting";
-      if (state === "playing") {
-        firstFrame = true; retries = 0;
-        callbacks.onStatus("В эфире");
-      } else if (!firstFrame && state !== "blocked" && !document.hidden && Date.now() - firstConnectionAt > firstFrameTimeout) {
-        if (config.roomRelay) {
-          relayRequested = true;
-          callbacks.onStatus("Видео не пришло. Подключаемся через сервер комнаты…");
-        } else return renewGuest(config,true);
+      let recover = false;
+      if (state === "stalled" && !document.hidden) {
+        callbacks.onStatus("Ждём следующий кадр от ведущего…");
+        recover = probe.failed(() => { if (healthChannel?.readyState === "open") healthChannel.send("check"); });
+      } else {
+        probe.reset();
+        if (state === "playing") { firstFrame = true; retries = 0; callbacks.onStatus("В эфире"); }
+        else if (state === "paused") callbacks.onStatus("Просмотр на паузе у вас.");
+        else if (state === "waiting" && !firstFrame && !document.hidden) recover = Date.now() - firstConnectionAt > firstFrameTimeout;
+      }
+      if (recover) {
+        if (!config.roomRelay) return renewGuest(config, true);
+        relayRequested = true;
+        callbacks.onStatus("Видео не пришло. Подключаемся через сервер комнаты…");
       }
     }
     return true;
@@ -251,7 +294,7 @@ export function connectTab(code: string, session: string, token: string, stream:
             if (config.roomRelay && !servingRelay) {
               servingRelay = true;
               serveRoomRelay(code, session, stream, signal, {
-                status: callbacks.onStatus, changed: callbacks.onSessionChanged,
+                status: callbacks.onStatus, changed: callbacks.onSessionChanged, refreshAccess, captureHealth: callbacks.captureHealth,
                 audience: active => { relayAudience = active; if (active) callbacks.onConnected?.(); },
               });
             }
@@ -262,7 +305,7 @@ export function connectTab(code: string, session: string, token: string, stream:
             closePeer(attempt);
             callbacks.onStream(null);
             if (joinSent) { joinSent = false; void api(base, token, { action: "leave", attempt }).catch(() => {}); }
-            watchRoomRelay(code, session, signal, { status: callbacks.onStatus, source: callbacks.onRelaySource, changed: callbacks.onSessionChanged, playback: callbacks.playback });
+            watchRoomRelay(code, session, signal, { status: callbacks.onStatus, source: callbacks.onRelaySource, changed: callbacks.onSessionChanged, refreshAccess, playback: callbacks.playback });
             if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
             break;
           } else if (!await guestStep(config)) break;
@@ -290,8 +333,13 @@ export function connectTab(code: string, session: string, token: string, stream:
             if (!renewGuest(config)) break;
           } else {
             errors++;
-            if (!stream && config?.roomRelay && errors >= 2) relayRequested = true;
-            callbacks.onStatus("Нет ответа от сервера комнаты. Пробуем снова…");
+            const playback = receivedVideo && peers.get(attempt)?.connectionState === "connected" ? callbacks.playback(receivedVideo) : "waiting";
+            if (playback === "playing") callbacks.onStatus("В эфире");
+            else if (playback === "paused") callbacks.onStatus("Просмотр на паузе у вас.");
+            else if (playback !== "blocked") {
+              if (!stream && config?.roomRelay && errors >= 2) relayRequested = true;
+              callbacks.onStatus("Нет ответа от сервера комнаты. Пробуем снова…");
+            }
           }
         }
         if (!signal.aborted) await delay(Math.min(5000, pollInterval * (1 + errors)), signal);

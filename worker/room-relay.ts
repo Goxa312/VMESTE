@@ -1,9 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import { ApiError, getRoom, member, safe } from "../lib/server";
 import { relayFormats, relayMaxPacket } from "../lib/relay-format";
+import { healthReply } from "../lib/broadcast-health";
 
 type Profile = "auto" | "mp4";
-type SocketState = { host: boolean; code: string; session: string; ready: boolean; pending: number[]; profile?:Profile; multiProfile?:boolean };
+type SocketState = { host: boolean; code: string; session: string; ready: boolean; pending: number[]; profile?:Profile; multiProfile?:boolean; lastCheck?:number; awaitingCheck?:boolean };
 const stateOf = (ws: WebSocket) => ws.deserializeAttachment() as SocketState;
 function close(ws: WebSocket, code: number, reason: string) { try { ws.close(code, reason); } catch { /* already closed */ } }
 function send(ws: WebSocket, data: ArrayBuffer | string) {
@@ -85,6 +86,13 @@ export class RoomRelay extends DurableObject<Cloudflare.Env> {
     if (ws.readyState !== 1) return;
     const state = stateOf(ws);
     if (!state.host) {
+      if (data === "check") {
+        const now = Date.now();
+        if (!state.ready || now - (state.lastCheck ?? 0) < 2000) return;
+        state.lastCheck = now; state.awaitingCheck = true; ws.serializeAttachment(state);
+        for (const host of this.group("host", state.profile ?? "auto")) send(host, "check");
+        return;
+      }
       if (data !== "ack") { close(ws, 1008, "Viewer cannot publish"); return; }
       state.pending.shift();
       ws.serializeAttachment(state);
@@ -105,6 +113,14 @@ export class RoomRelay extends DurableObject<Cloudflare.Env> {
     const viewers = this.group("guest",profile);
     if (!viewers.length) { send(ws, "idle"); return; }
     if (typeof data === "string") {
+      if (healthReply.test(data)) {
+        for (const viewer of viewers) {
+          const guest = stateOf(viewer);
+          if (!guest.awaitingCheck) continue;
+          guest.awaitingCheck = false; viewer.serializeAttachment(guest); send(viewer, data);
+        }
+        return;
+      }
       if (data === "unsupported") { for (const viewer of viewers) send(viewer, data); return; }
       if (!relayFormats.some(format => data === "format:" + format && (profile !== "mp4" || format.startsWith("video/mp4")))) { close(ws, 1008, "Unknown format"); return; }
       for (const viewer of viewers) {

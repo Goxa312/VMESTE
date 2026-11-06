@@ -40,7 +40,7 @@ export function PlaybackDetails({panel,room,connected,host,onClose}:{
     [t("Видео"),video?.videoWidth ? video.videoWidth+" × "+video.videoHeight : t("Первого кадра пока нет")],
   ];
   if(typeof decoded==="number")rows.push([t("Кадры"),String(decoded)]);
-  if(video) rows.push([t("Состояние плеера"),t(video.error ? "Ошибка воспроизведения" : video.ended ? "Просмотрено" : video.readyState<2 ? "Загрузка видео" : video.paused ? "На паузе" : "Воспроизводится")]);
+  if(video) rows.push([t("Состояние плеера"),t(video.error ? "Ошибка воспроизведения" : stage?.dataset.waitingFrame ? "Ждём следующий кадр от ведущего…" : video.ended ? "Просмотрено" : video.readyState<2 ? "Загрузка видео" : video.paused ? "На паузе" : "Воспроизводится")]);
   if(video?.error) rows.push([t("Ошибка браузера"),"MEDIA_ERR "+video.error.code]);
   const http = root?.querySelector(".player-error")?.textContent?.match(/HTTP (\d{3})/)?.[1] || stage?.dataset.lastHttp;
   if(http) rows.push([t("Последняя ошибка запроса"),"HTTP "+http]);

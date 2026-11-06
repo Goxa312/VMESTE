@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ExternalLink, FolderOpen, Square } from "lucide-react";
 import { releaseFilm, takeFilm } from "@/lib/local-film";
 import { connectTab } from "@/lib/tab-stream";
+import { observeBroadcastVideo } from "@/lib/broadcast-health";
 import type { RoomState, Snapshot } from "@/lib/shared";
 
 type Capture = { session: string; pageUrl: string; revision: number; stream: MediaStream };
@@ -51,7 +52,7 @@ export function TabPlayer({ room, token, host, hostOnline, connected, onAction, 
   const [preferRelay, setPreferRelay] = useState(false);
   const [audio, setAudio] = useState(false), [retry, setRetry] = useState(0);
   const [needsGesture, setNeedsGesture] = useState(false);
-  const displayed = useRef<MediaStream | string | null>(null);
+  const observer = useRef<ReturnType<typeof observeBroadcastVideo> | null>(null);
   const [lastHttp,setLastHttp] = useState<number>();
   const blocked = useRef(false), sawBroadcast = useRef(false);
   const [status, setStatus] = useState(""), [error, setError] = useState(""), [busy, setBusy] = useState(false);
@@ -95,8 +96,13 @@ export function TabPlayer({ room, token, host, hostOnline, connected, onAction, 
         const v = player.current;
         if (!v || (typeof source === "string" ? v.getAttribute("src") !== source : v.srcObject !== source)) return "waiting";
         if (blocked.current) return "blocked";
-        if (typeof v.requestVideoFrameCallback === "function") return displayed.current === source ? "playing" : "waiting";
-        return v.readyState >= 2 && v.videoWidth > 0 && (v.currentTime > 0 || (v.getVideoPlaybackQuality?.().totalVideoFrames ?? 0) > 0) ? "playing" : "waiting";
+        return observer.current?.read() ?? "waiting";
+      },
+      captureHealth: sent => {
+        const video = fromFile ? source.current : player.current;
+        if (fromFile && video?.paused && !waitingForViewer.current) return "health:paused";
+        const frames = video?.getVideoPlaybackQuality?.().totalVideoFrames ?? 0;
+        return "health:" + frames + "/" + sent;
       },
       onConnected: () => {
         if (!fromFile || !host || !waitingForViewer.current) return;
@@ -119,19 +125,26 @@ export function TabPlayer({ room, token, host, hostOnline, connected, onAction, 
     });
   }
   useEffect(() => {
-    blocked.current = false; displayed.current = null; setNeedsGesture(false);
+    blocked.current = false; setNeedsGesture(false);
     const video = player.current;
     if (!video) return;
     if (relayUrl) { video.srcObject = null; video.src = relayUrl; }
     else { video.removeAttribute("src"); video.srcObject = stream; }
     const source = relayUrl || stream;
     if (!source) return;
-    const frame = video.requestVideoFrameCallback?.(() => {
-      displayed.current = source;
-      if (!host) setStatus(relayUrl ? "В эфире · через комнату" : "В эфире");
-    });
+    const monitor = !host ? observeBroadcastVideo(video, () => setStatus(relayUrl ? "В эфире · через комнату" : "В эфире")) : null;
+    observer.current = monitor;
+    let wasPlaying = false;
+    const visibility = () => {
+      if (document.hidden) wasPlaying = !video.paused;
+      else if (wasPlaying && !blocked.current) { wasPlaying = false; if (video.paused || relayUrl) allowPlayback(video); }
+    };
+    document.addEventListener("visibilitychange", visibility);
     allowPlayback(video);
-    return () => { if (frame !== undefined) video.cancelVideoFrameCallback(frame); displayed.current=null; };
+    return () => {
+      document.removeEventListener("visibilitychange", visibility);
+      monitor?.stop(); observer.current = null;
+    };
   }, [stream, relayUrl, host]);
 
   async function stop(owned: Capture) {
@@ -195,7 +208,7 @@ export function TabPlayer({ room, token, host, hostOnline, connected, onAction, 
   if (room.shareId) guestTitle = hostOnline ? "Ведущий начал показ" : "Ждём связи с ведущим";
   else if (sawBroadcast.current) guestTitle = "Ждём следующего показа";
 
-  return <section className="live-stage" data-last-http={lastHttp} aria-label={fromFile ? t("Показ файла") : t("Просмотр вкладки")}>
+  return <section className="live-stage" data-waiting-frame={status === "Ждём следующий кадр от ведущего…" || undefined} data-last-http={lastHttp} aria-label={fromFile ? t("Показ файла") : t("Просмотр вкладки")}>
     {fromFile && host && fileUrl && <video className="live-video" ref={source} src={fileUrl} controls muted playsInline preload="auto" onError={() => setError("Браузер не может декодировать этот файл. Выберите MP4 или WebM с поддерживаемым кодеком.")}/>}
     {showing && !(fromFile && host) && <video className="live-video" ref={player} controls={!host} autoPlay muted playsInline disableRemotePlayback={Boolean(relayUrl)}
       onPlaying={e => { blocked.current = false; setNeedsGesture(false); if (relayUrl && typeof e.currentTarget.requestVideoFrameCallback !== "function") setStatus("В эфире · через комнату"); }}

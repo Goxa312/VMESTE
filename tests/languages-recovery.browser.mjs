@@ -31,6 +31,16 @@ async function about(label,lang) {
   await button(lang==="ru"?"Закрыть":"Close",box).click();
 }
 try {
+  // The switch also works before scripts load, including when arriving directly on the help page.
+  const nativeContext = await browser.newContext({javaScriptEnabled:false});
+  const native = await nativeContext.newPage();
+  await native.goto(base+"/kinogo-extension");
+  await button("Switch to English",native).click();
+  await native.getByRole("heading",{name:"Kinogo extension",exact:true}).waitFor();
+  assert.equal(new URL(native.url()).pathname,"/kinogo-extension");
+  await native.goto(base); await button("About the ratings",native).waitFor();
+  await button("Переключить на русский",native).click(); await button("Об оценках",native).waitFor();
+  await nativeContext.close();
   await page.goto(base);
   await about("Об оценках","ru");
   await button("Switch to English").click();

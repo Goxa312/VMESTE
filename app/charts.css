@@ -10,11 +10,12 @@
 .account-links span { color:var(--rule); }
 .account-links button:hover,.account-trigger:hover { color:var(--accent); }
 .cinema-header .profile { display:flex; align-items:center; gap:clamp(8px,1.1vw,17px); }
+.language-form { display:inline-flex; flex:none; margin:0; }
 .language-switch { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:44px; padding:0 4px; white-space:nowrap; color:var(--muted); font-size:14px; }
 .language-switch:hover { color:var(--accent); }
 .language-short { display:none; }
 .room-loading,.extension-setup { position:relative; }
-.room-loading > .language-switch,.join-page > .language-switch { position:absolute; top:15px; right:var(--gutter); }
+.room-loading > .language-form,.join-page > .language-form { position:absolute; top:15px; right:var(--gutter); }
 .setup-bar { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
 .forgot-link { align-self:flex-end; margin:-9px 0 -4px; padding:2px 0; min-height:35px; font-size:13px; color:var(--accent); text-decoration:underline; text-underline-offset:4px; }
 .forgot-link:hover { color:var(--text); }
@@ -145,7 +146,7 @@
   .language-switch { font-size:12px; gap:3px; }
   .language-switch svg { width:15px; }
   .room-topbar { grid-template-columns:minmax(0,1fr) auto auto; }
-  .room-topbar .language-switch { grid-column:3; grid-row:1; }
+  .room-topbar .language-form { grid-column:3; grid-row:1; }
   .room-topbar .invite-action { grid-column:2; grid-row:1; }
   .cinema-header { grid-template-columns:auto 1fr; gap:8px 12px; }
   .profile { justify-self:end; grid-column:2; grid-row:1; }

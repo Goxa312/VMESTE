@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Globe2 } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { translate, translateNotice, type Locale } from "@/lib/i18n";
 
 const Language = createContext<{locale: Locale; change: (value: Locale) => void}>({locale:"ru",change:()=>{}});
@@ -32,9 +33,13 @@ export function useLanguage() {
 }
 export function LanguageSwitch() {
   const {locale,change} = useContext(Language);
+  const pathname = usePathname();
   const target = locale === "ru" ? "en" : "ru";
   const label = target === "en" ? "Switch to English" : "Переключить на русский";
-  return <button type="button" className="language-switch" lang={target} aria-label={label} title={label} onClick={()=>change(target)}>
-    <Globe2 size={17} aria-hidden="true"/><span className="language-name">{target === "en" ? "English" : "Русский"}</span><span className="language-short">{target.toUpperCase()}</span>
-  </button>;
+  return <form className="language-form" method="post" action="/api/language" onSubmit={event=>{event.preventDefault();change(target);}}>
+    <input type="hidden" name="locale" value={target}/><input type="hidden" name="page" value={pathname || "/"}/>
+    <button type="submit" className="language-switch" lang={target} aria-label={label} title={label}>
+      <Globe2 size={17} aria-hidden="true"/><span className="language-name">{target === "en" ? "English" : "Русский"}</span><span className="language-short">{target.toUpperCase()}</span>
+    </button>
+  </form>;
 }

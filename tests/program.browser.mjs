@@ -66,6 +66,14 @@ try {
   await page.getByRole("link",{name:"Together Tonight — на главную"}).click();
   const resume=page.getByRole("link",{name:/Открыть комнату:.*Проверка комнаты/});
   assert.equal(await resume.getAttribute("href"),room);
+  // Earlier releases saved room credentials, but no host/guest label in local history.
+  await page.evaluate(()=>{const rows=JSON.parse(localStorage.getItem("vm-recent")); rows.forEach(row=>delete row.isHost); localStorage.setItem("vm-recent",JSON.stringify(rows));});
+  await page.reload(); await page.getByRole("button",{name:/^Удалить или убрать комнату:.*Проверка комнаты/}).click();
+  const erase=page.getByRole("dialog",{name:"Удалить комнату для всех?"});
+  await erase.getByRole("button",{name:"Удалить комнату",exact:true}).click();
+  await page.getByText("Комната удалена для всех").waitFor();
+  await page.reload(); await page.getByText(/Здесь появятся комнаты, которые/).waitFor();
+  assert.equal(await resume.count(),0);
   assert.deepEqual(errors,[]);
   console.log("PASS: 3 × 100 rankings, score order, bookmarks, global search, registration entry, mobile and guest rooms");
 } finally { await browser.close(); }

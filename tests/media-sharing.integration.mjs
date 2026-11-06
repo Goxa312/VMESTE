@@ -71,3 +71,6 @@ ok(lateStop.body.room.shareId===second && (await json(signal2,host)).body[0].att
 await json(room+"/actions",host,{action:"share-stop",session:second,pageUrl:page.videoUrl});
 const ended=await json(signal2,visitor);
 ok(ended.status===409 && ended.body.code==="share_changed","stopped broadcast releases the viewer even after the host closes its tab");
+const removed=await json(room,host,{action:"delete"},"DELETE");
+ok(removed.status===200 && [404,410].includes((await fetch(base+file,{headers:{Cookie:guest.cookie}})).status),"deleting the room revokes uploaded media and its playback cookie");
+ok([404,410].includes((await json(room,null,{name:"Visitor"})).status),"a deleted room cannot be joined again");

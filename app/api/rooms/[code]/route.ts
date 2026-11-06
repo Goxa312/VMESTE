@@ -1,4 +1,5 @@
-import { safe, body, str, randomId, hash, db, json, snapshot, getRoom, member, mediaCookie, bearer, ApiError, currentAccount, sameOriginWrite, accountRoomToken } from "@/lib/server";
+import { safe, body, str, randomId, hash, db, json, snapshot, getRoom, member, mediaCookie, bearer, ApiError, currentAccount, sameOriginWrite, accountCookie, accountRoomToken, endRelay } from "@/lib/server";
+import { purgeClosedRoom } from "@/lib/uploads";
 type Context = { params: Promise<{ code: string }> };
 export async function GET(req: Request, context: Context) { return safe(async () => {
   const { code } = await context.params; await getRoom(code); const me = await member(req, code);
@@ -10,8 +11,8 @@ export async function POST(req: Request, context: Context) { return safe(async (
   const { code } = await context.params;
   const input = await body(req), account = await currentAccount(req);
   if (account) sameOriginWrite(req);
-  if (input.resume && !account) return json({ token: null });
   await getRoom(code);
+  if (input.resume && !account) return json({ token: null });
   const accountToken = account ? await accountRoomToken(account.secret, code) : "";
   if (account) {
     const known = await db().prepare("SELECT id FROM participants WHERE room_id=? AND account_id=?").bind(code, account.id).first<{id:string}>();
@@ -27,4 +28,29 @@ export async function POST(req: Request, context: Context) { return safe(async (
   }
   if (!result.meta.changes) throw new ApiError("Комната заполнена. Создайте другую комнату.", 409);
   return mediaCookie(json({ ...(await snapshot(code, id)), token }, 201), req, code, token);
+}); }
+
+export async function DELETE(req: Request, context: Context) { return safe(async () => {
+  sameOriginWrite(req);
+  const { code } = await context.params, { action } = await body(req, 256);
+  if (action !== "delete" && action !== "leave") throw new ApiError("Выберите действие с комнатой.");
+  const room = await getRoom(code), secret = accountCookie(req);
+  const token = !req.headers.has("Authorization") && secret ? await accountRoomToken(secret, code) : bearer(req);
+  const me = await member(req, code, token);
+  if (action === "leave") {
+    if (room.host_id === me.id) throw new ApiError("Вы ведущий. Для закрытия выберите «Удалить комнату».", 409);
+    await db().batch([
+      db().prepare("DELETE FROM participants WHERE id=? AND room_id=? AND id<>(SELECT host_id FROM rooms WHERE id=?)").bind(me.id, code, code),
+      db().prepare("DELETE FROM share_peers WHERE room_id=? AND guest=?").bind(code, me.id),
+    ]);
+  } else {
+    if (room.host_id !== me.id) throw new ApiError("Удалить комнату для всех может только ведущий.", 403);
+    const [closed] = await db().batch<{share_id: string | null}>([
+      db().prepare("UPDATE rooms SET expires_at=0,playing=0,revision=revision+1 WHERE id=? AND host_id=? AND expires_at>? RETURNING share_id").bind(code, me.id, Date.now()),
+      db().prepare("UPDATE uploads SET expires_at=0 WHERE room_id=? AND EXISTS (SELECT 1 FROM rooms WHERE id=? AND host_id=? AND expires_at=0)").bind(code, code, me.id),
+      purgeClosedRoom(code),
+    ]);
+    if (closed.results[0]) await endRelay(code, closed.results[0].share_id);
+  }
+  return json({ ok:true });
 }); }

@@ -6,9 +6,9 @@ export function Logo() {
   return <a className="brand" href="/" aria-label={`${siteName} — на главную`}><span>together</span>{" "}<span>tonight</span></a>;
 }
 export function Spinner() { return <LoaderCircle size={18} className="spin" />; }
-export function Modal({ title, caption, children, onClose }: { title: string; caption?: string; children: ReactNode; onClose: () => void }) {
+export function Modal({ title, caption, children, onClose, busy = false }: { title: string; caption?: string; children: ReactNode; onClose: () => void; busy?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); const before = document.body.style.overflow; document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = before; }; }, []);
-  return <dialog ref={dialog} aria-label={title} className="modal" onCancel={onClose} onClick={e => { if (e.target === e.currentTarget) onClose(); }}><div className="modal-inner"><button className="icon-button modal-close" aria-label="Закрыть" onClick={onClose}><X size={21} /></button><h2>{title}</h2>{caption && <p className="muted">{caption}</p>}{children}</div></dialog>;
+  return <dialog ref={dialog} aria-label={title} className="modal" onCancel={e => { e.preventDefault(); if (!busy) onClose(); }} onClick={e => { if (!busy && e.target === e.currentTarget) onClose(); }}><div className="modal-inner"><button className="icon-button modal-close" aria-label="Закрыть" disabled={busy} onClick={onClose}><X size={21} /></button><h2>{title}</h2>{caption && <p className="muted">{caption}</p>}{children}</div></dialog>;
 }
 export function Empty({ title, text, action, onClick }: { title: string; text: string; action?: string; onClick?: () => void }) { return <div className="empty"><h3>{title}</h3><p>{text}</p>{action && <button className="button primary" onClick={onClick}>{action}</button>}</div>; }

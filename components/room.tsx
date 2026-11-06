@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Check, Link2, SendHorizontal, Users, WifiOff, X, Clapperboard } from "lucide-react";
-import { api, readLocal, readRecentRooms, recordViewing, rememberRoom, RequestError, saveLocal } from "@/lib/client";
+import { api, forgetGuestRoom, readLocal, recordViewing, rememberRoom, RequestError, saveLocal } from "@/lib/client";
 import { playbackPosition, type Snapshot, type Video } from "@/lib/shared";
 import { Logo, Spinner, Empty } from "./ui";
 import { TabPlayer } from "./tab-player";
@@ -60,7 +60,7 @@ export default function Room({ code }: { code: string }) {
         else if (result.name) nextName = result.name;
       } catch (err) {
         if (controller.signal.aborted) return;
-        if (err instanceof RequestError && [404,410].includes(err.status)) { setError(err.message); setFatal(true); }
+        if (err instanceof RequestError && [404,410].includes(err.status)) { forgetGuestRoom(code); nextToken = ""; setError(err.message); setFatal(true); }
       }
       setToken(nextToken); setName(nextName); setInitialized(true);
     };
@@ -69,7 +69,25 @@ export default function Room({ code }: { code: string }) {
   }, [code, apply]);
   useEffect(() => {
     if (!token) return; let alive = true, timer: ReturnType<typeof setTimeout>;
-    async function poll() { const start = Date.now(); try { const data = await api<Snapshot>(`/api/rooms/${code}`, token); if (alive) { apply(data, start); setError(""); } } catch (e) { if (alive) { setConnected(false); if (e instanceof RequestError && e.status === 401) { setToken(""); saveLocal(`vm-room-${code}`, ""); } else if (e instanceof RequestError && [404, 410].includes(e.status)) { setError(e.message); setFatal(true); saveLocal("vm-recent", readRecentRooms().filter(room => room.id !== code)); return; } else setError("Связь прервалась. Пытаемся подключиться снова…"); } } if (alive) timer = setTimeout(poll, document.hidden ? 2000 : 850); }
+    async function poll() {
+      const start = Date.now();
+      try {
+        const data = await api<Snapshot>(`/api/rooms/${code}`, token);
+        if (alive) { apply(data, start); setError(""); }
+      } catch (e) {
+        if (!alive) return;
+        setConnected(false);
+        if (e instanceof RequestError && e.status === 401) {
+          if (readLocal(`vm-room-${code}`, "") === token) forgetGuestRoom(code);
+          setToken(""); return;
+        }
+        if (e instanceof RequestError && [404, 410].includes(e.status)) {
+          forgetGuestRoom(code); setToken(""); setError(e.message); setFatal(true); return;
+        }
+        setError("Связь прервалась. Пытаемся подключиться снова…");
+      }
+      if (alive) timer = setTimeout(poll, document.hidden ? 2000 : 850);
+    }
     void poll(); return () => { alive = false; clearTimeout(timer); };
   }, [token, code, apply]);
   const viewing = snapshot?.room.id;
@@ -77,9 +95,9 @@ export default function Room({ code }: { code: string }) {
     if (!viewing || !token) return;
     function record(promote = false) {
       const room = latest.current?.room;
-      if (!room || room.id !== code || latest.current?.accountMember) return;
+      if (!room || room.id !== code || latest.current?.accountMember || readLocal(`vm-room-${code}`, "") !== token) return;
       const duration = watchMain.current?.querySelector<HTMLVideoElement>(".video-stage video")?.duration;
-      recordViewing(room, playbackPosition(room, Date.now() + serverOffset.current), duration, promote);
+      recordViewing(room, playbackPosition(room, Date.now() + serverOffset.current), duration, promote, latest.current?.me);
     }
     record(true);
     const checkpoint = () => record();

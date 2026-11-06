@@ -40,18 +40,20 @@ export async function beginUpload(req: Request, code: string, input: Record<stri
   const row: FileRow = { id, room_id: code, title, size, mime, revision: room.revision, state: "pending",
     backend: env.BUCKET ? "r2" : "d1", multipart: null, expires_at: Math.min(room.expires_at, now + 6 * 3600000) };
   const reservation = await db().prepare(`INSERT INTO uploads (id,room_id,title,mime,size,backend,state,revision,expires_at)
-    SELECT ?,?,?,?,?,?,'pending',?,? WHERE (SELECT count(*) FROM uploads WHERE room_id=? AND state='pending' AND expires_at>?) < 3
+    SELECT ?,?,?,?,?,?,'pending',?,? WHERE EXISTS(SELECT 1 FROM rooms WHERE id=? AND expires_at>?)
+    AND (SELECT count(*) FROM uploads WHERE room_id=? AND state='pending' AND expires_at>?) < 3
     AND (?='r2' OR (SELECT COALESCE(sum(size),0) FROM uploads WHERE backend='d1') + ? <= ?)`)
-    .bind(id, code, title, mime, size, row.backend, row.revision, row.expires_at, code, now, row.backend, size, 160 * MiB).run();
+    .bind(id, code, title, mime, size, row.backend, row.revision, row.expires_at, code, now, code, now, row.backend, size, 160 * MiB).run();
   if (!reservation.meta.changes) throw new ApiError("Хранилище заполнено. Завершите текущую загрузку или используйте ссылку.", 409);
   if (row.backend === "r2") {
     let upload: R2MultipartUpload | undefined;
     try {
       upload = await bucket().createMultipartUpload(objectKey(row), { httpMetadata: { contentType: mime } });
-      await db().prepare("UPDATE uploads SET multipart=? WHERE id=?").bind(upload.uploadId, id).run();
+      const linked = await db().prepare("UPDATE uploads SET multipart=? WHERE id=? AND expires_at>?").bind(upload.uploadId, id, Date.now()).run();
+      if (!linked.meta.changes) throw new ApiError("Комната или загрузка уже закрыта.", 410);
     } catch (error) {
       if (upload) await upload.abort().catch(() => {});
-      await db().prepare("DELETE FROM uploads WHERE id=?").bind(id).run();
+      await db().batch([db().prepare("DELETE FROM uploads WHERE id=?").bind(id), purgeClosedRoom(code)]);
       throw error;
     }
   }
@@ -108,12 +110,18 @@ export async function finishUpload(req: Request, code: string, file: string) {
   if (!result.meta.changes && (await getRoom(code)).video_url !== url) throw new ApiError("Источник уже изменился.", 409);
   return json({ url });
 }
+// Keep R2 metadata until external objects have actually been removed. Everything in D1 cascades.
+export function purgeClosedRoom(code: string) {
+  return db().prepare("DELETE FROM rooms WHERE id=? AND expires_at=0 AND NOT EXISTS (SELECT 1 FROM uploads WHERE room_id=? AND backend='r2')").bind(code, code);
+}
 async function remove(row: FileRow) {
   if (row.backend === "r2") {
     if (row.multipart && row.state === "pending") await bucket().resumeMultipartUpload(objectKey(row), row.multipart).abort().catch(() => {});
     await bucket().delete(objectKey(row));
   }
-  await db().prepare("DELETE FROM uploads WHERE id=?").bind(row.id).run();
+  const dropFile = db().prepare("DELETE FROM uploads WHERE id=?").bind(row.id);
+  if (row.backend === "r2") await db().batch([dropFile, purgeClosedRoom(row.room_id)]);
+  else await dropFile.run();
 }
 export async function cancelUpload(req: Request, code: string, file: string) {
   await uploadHost(req, code);

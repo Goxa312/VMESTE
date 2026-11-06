@@ -3,6 +3,12 @@ import { program } from "./program";
 import { demos, type Kind } from "./shared";
 import { directSourceError, isKinogoPage, linkMode, videoUrlError, type SourceMode } from "./video-source";
 export function db() { if (!env.DB) throw new Error("Database unavailable"); return env.DB; }
+export async function endRelay(code: string, session: string | null) {
+  const ns = env.ROOM_RELAY;
+  if (!session || !ns) return;
+  try { await ns.get(ns.idFromName(code + ":" + session)).fetch("https://relay.internal/end", { method: "POST" }); }
+  catch { /* The relay also checks the authoritative room and expires automatically. */ }
+}
 export class ApiError extends Error { constructor(message: string, public status = 400, public code?: string) { super(message); } }
 export function json(data: unknown, status = 200) { return Response.json(data, { status, headers: { "Cache-Control": "no-store" } }); }
 export async function safe(fn: () => Promise<Response>) { try { return await fn(); } catch (e) { if (e instanceof ApiError) return json({ error: e.message, code: e.code }, e.status); console.error(e); return json({ error: "Сервер временно недоступен. Попробуйте ещё раз." }, 500); } }
@@ -63,7 +69,8 @@ export type MemberRow = { id: string; room_id: string; name: string; color: numb
 export async function getRoom(code: string) {
   if (!/^[a-z0-9]{12}$/.test(code)) throw new ApiError("Комната не найдена. Проверьте приглашение.", 404);
   const room = await db().prepare("SELECT * FROM rooms WHERE id = ?").bind(code).first<RoomRow>();
-  if (!room) throw new ApiError("Комната не найдена. Проверьте приглашение.", 404);
+  if (!room) throw new ApiError("Комната не найдена. Проверьте приглашение: возможно, ведущий её удалил.", 404);
+  if (room.expires_at === 0) throw new ApiError("Ведущий удалил комнату. Приглашение больше не действует.", 410);
   if (room.expires_at < Date.now()) throw new ApiError("Срок комнаты истёк. Создайте новую.", 410);
   return room;
 }

@@ -1,6 +1,7 @@
 import { sqliteTable, text, integer, real, index, uniqueIndex, blob, primaryKey } from "drizzle-orm/sqlite-core";
 export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(), login: text("login").notNull().unique(), name: text("name").notNull(),
+  email: text("email").unique(), // Existing accounts can still sign in without an address.
   passwordHash: text("password_hash").notNull(), createdAt: integer("created_at").notNull(),
 });
 export const accountSessions = sqliteTable("account_sessions", {

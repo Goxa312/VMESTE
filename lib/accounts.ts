@@ -37,6 +37,17 @@ function sessionResponse(req: Request, token: string, status = 200) {
   return response;
 }
 
+function registrationEmail(value: unknown): string {
+  const email = typeof value === "string" ? value.trim().toLowerCase() : "";
+  const [local, domain, extra] = email.split("@");
+  const label = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+  if (!domain || extra !== undefined || email.length > 254 || local.length > 64 ||
+      !/^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/.test(local) ||
+      !domain.includes(".") || !domain.split(".").every(part => label.test(part)))
+    throw new ApiError("Введите адрес электронной почты, например name@example.ru.");
+  return email;
+}
+
 export async function authenticate(req: Request, input: Record<string, unknown>) {
   const action = input.action;
   if (action === "logout") {
@@ -45,22 +56,24 @@ export async function authenticate(req: Request, input: Record<string, unknown>)
     return sessionResponse(req, "");
   }
   if (action !== "login" && action !== "register") throw new ApiError("Выберите вход или регистрацию.");
+  const email = action === "register" ? registrationEmail(input.email) : null;
   const name = typeof input.login === "string" ? input.login.trim().normalize("NFKC") : "";
   const login = name.toLowerCase(), password = input.password;
   if (!/^[а-яёa-z0-9][а-яёa-z0-9_.-]{2,23}$/u.test(login)) throw new ApiError("Логин — от 3 до 24 букв, цифр, точек, дефисов или подчёркиваний.");
   if (typeof password !== "string" || !password || password.length > 128 || (action === "register" && password.length < 10))
     throw new ApiError(action === "register" ? "Используйте пароль длиной от 10 до 128 символов." : "Введите логин и пароль.");
+  if (action === "register" && password !== input.passwordConfirmation) throw new ApiError("Пароли не совпадают. Повторите пароль ещё раз.");
   await limitAttempt(req, action, login);
   const secret = randomId() + randomId(), tokenHash = await hash(secret), now = Date.now();
   const expires = now + lifetime * 1000;
   if (action === "register") {
     const id = randomId(), salt = randomId(), key = (await digest(password, salt)).toString("hex");
     const [created] = await db().batch([
-      db().prepare("INSERT INTO accounts(id,login,name,password_hash,created_at) VALUES(?,?,?,?,?) ON CONFLICT(login) DO NOTHING")
-        .bind(id, login, name, [digestPrefix, salt, key].join("$"), now),
+      db().prepare("INSERT INTO accounts(id,email,login,name,password_hash,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING")
+        .bind(id, email, login, name, [digestPrefix, salt, key].join("$"), now),
       db().prepare("INSERT INTO account_sessions(token_hash,account_id,expires_at) SELECT ?,id,? FROM accounts WHERE id=?").bind(tokenHash, expires, id),
     ]);
-    if (!created.meta.changes) throw new ApiError("Этот логин уже занят. Выберите другой или войдите.", 409);
+    if (!created.meta.changes) throw new ApiError("Этот логин или адрес почты уже используется. Войдите или укажите другие данные.", 409);
   } else {
     const found = await db().prepare("SELECT id,password_hash FROM accounts WHERE login=?").bind(login).first<{id:string;password_hash:string}>();
     const valid = await passwordMatches(password, found?.password_hash ?? dummy);

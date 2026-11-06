@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Bookmark, Check, ChevronDown, DoorOpen, Film, Play, Plus, Search, Trash2, UserRound, X } from "lucide-react";
-import { api, libraryKey, readLocal, readRecentRooms, saveLocal, type RecentRoom } from "@/lib/client";
+import { api, forgetGuestRoom, libraryKey, readLocal, readRecentRooms, saveLocal, type RecentRoom } from "@/lib/client";
 import { listSuggestions, program } from "@/lib/program";
 import { demos, formatTime, kinds, type Video } from "@/lib/shared";
 import { Empty, Logo, Modal, Spinner } from "./ui";
 import { VideoForm } from "./video-form";
 import { AccountDialog } from "./account-dialog";
+import { RoomRemovalDialog, type Removal } from "./room-removal-dialog";
 import { Rankings } from "./rankings";
 import { chartFilms } from "@/lib/charts";
 
@@ -29,14 +30,15 @@ function listCount(count: number) {
   const word = new Intl.PluralRules("ru").select(count);
   return count + " " + (word === "one" ? "название" : word === "few" ? "названия" : "названий");
 }
-function RoomEntry({room}: {room:RecentRoom}) {
+function RoomEntry({room, onRemove}: {room:RecentRoom; onRemove:(room:RecentRoom)=>void}) {
   const position = room.duration && room.position ? Math.max(0,Math.ceil((room.duration-room.position)/60)) : undefined;
   const detail = [room.videoTitle, room.isHost === undefined ? "" : room.isHost ? "Вы ведущий" : "Вы участник",
     position !== undefined ? (position ? "Осталось "+position+" мин" : "Просмотрено") : room.position ? formatTime(room.position) : ""].filter(Boolean).join(" · ");
-  return <a className="room-entry" href={"/room/"+room.id} aria-label={`Открыть комнату: ${room.title}, ${room.videoTitle}`}>
+  const action = room.isHost === undefined ? "Удалить или убрать комнату" : room.isHost ? "Удалить комнату" : "Убрать из моих комнат";
+  return <article className="room-row"><a className="room-entry" href={"/room/"+room.id} aria-label={`Открыть комнату: ${room.title}, ${room.videoTitle}`}>
     {room.poster ? <img src={room.poster} alt=""/> : <span className="room-entry-symbol"><DoorOpen size={24}/></span>}
     <span><strong>{room.title}</strong><small>{detail}</small></span><ArrowRight size={17} aria-hidden="true"/>
-  </a>;
+  </a><button type="button" className="room-remove" title={action} aria-label={`${action}: ${room.title}, ${room.videoTitle}`} onClick={()=>onRemove(room)}><Trash2 size={17} aria-hidden="true"/></button></article>;
 }
 
 function FilmCard({ title, poster, detail, onWatch, saved, onSave, onDelete }: {
@@ -70,6 +72,8 @@ export default function Home() {
   const [joinCode, setJoinCode] = useState(""), [joinError, setJoinError] = useState("");
   const [guestRooms, setGuestRooms] = useState<RecentRoom[]>([]);
   const [movingRooms, setMovingRooms] = useState(false);
+  const [removing, setRemoving] = useState<RecentRoom | null>(null);
+  const roomsHeading = useRef<HTMLHeadingElement>(null);
   const [profileError, setProfileError] = useState("");
   const [user, setUser] = useState<Profile | null>(null);
   const [auth, setAuth] = useState<"login" | "register" | null>(null);
@@ -108,6 +112,7 @@ export default function Home() {
     const showSection = () => { navigate(); window.scrollTo({ top: 0, behavior: "instant" }); };
     const sync = (event: StorageEvent) => {
       if (event.key === "vm-account-change") { window.location.reload(); return; }
+      if (event.key === "vm-rooms-change" && accountState.current) { void restore(); return; }
       if (!accountState.current && (event.key === "vm-recent" || event.key === "vm-favorites" || !event.key)) restoreGuest();
     };
     navigate(); void restore();
@@ -143,6 +148,16 @@ export default function Home() {
     finally { setMovingRooms(false); }
   }
   function accountChanged() { saveLocal("vm-account-change", crypto.randomUUID()); window.location.reload(); }
+  function removedRoom(room: RecentRoom, result: Removal) {
+    if (!user || result === "delete" || result === "gone") {
+      forgetGuestRoom(room.id); setGuestRooms(old=>old.filter(item=>item.id!==room.id));
+    }
+    setRecent(old=>old.filter(item=>item.id!==room.id));
+    saveLocal("vm-rooms-change", crypto.randomUUID());
+    setRemoving(null);
+    setToast(result === "delete" ? "Комната удалена для всех" : result === "gone" ? "Комната больше недоступна и убрана из списка" : "Комната убрана из вашего списка");
+    requestAnimationFrame(()=>roomsHeading.current?.focus({preventScroll:true}));
+  }
   async function logout() {
     try { await api("/api/account", undefined, {action:"logout"}); accountChanged(); }
     catch { setToast("Не удалось выйти. Попробуйте ещё раз."); }
@@ -227,9 +242,9 @@ export default function Home() {
       {view === "home" && !query && <>
         <Rankings onWatch={watch} favorites={favorites} onSave={favorite}/>
         <section className="screenings rooms-strip" aria-labelledby="screenings-title">
-          <div className="section-heading"><h2 id="screenings-title">Мои комнаты</h2>
+          <div className="section-heading"><h2 id="screenings-title" ref={roomsHeading} tabIndex={-1}>Мои комнаты</h2>
             {recent.length>3 && <a className="rank-more" href="#rooms">Все комнаты <ArrowRight size={16}/></a>}</div>
-          {recent.length ? <div className="room-entries">{recent.slice(0,3).map(room=><RoomEntry key={room.id} room={room}/>)}</div> :
+          {recent.length ? <div className="room-entries">{recent.slice(0,3).map(room=><RoomEntry key={room.id} room={room} onRemove={setRemoving}/>)}</div> :
             <p className="rooms-empty">{profileError || (interactive ? "Здесь появятся комнаты, которые вы создадите или посетите по приглашению." : "Загружаем комнаты…")}</p>}
           {!!user && guestRooms.length>0 && <button className="text-link import-rooms" disabled={movingRooms} onClick={()=>void importRooms()}>{movingRooms?"Переносим комнаты…":"Перенести мои гостевые комнаты в профиль"}</button>}
         </section>
@@ -261,12 +276,13 @@ export default function Home() {
             text={query ? "Попробуйте другое название или жанр." : "Добавьте фильм кнопкой «В список» в каталоге."} action={view === "saved" && !query ? "Открыть каталог" : undefined} onClick={() => { window.location.hash = "library"; }}/>}
       </section>}
       {view === "rooms" && !query && <section className="catalog">
-        <div className="section-heading"><h1>Мои комнаты</h1></div>
-        {recent.length ? <div className="room-entries">{recent.map(room=><RoomEntry key={room.id} room={room}/>)}</div> : <Empty title="Здесь появятся ваши комнаты" text="Создайте комнату или откройте приглашение друга."/>}
+        <div className="section-heading"><h1 ref={roomsHeading} tabIndex={-1}>Мои комнаты</h1></div>
+        {recent.length ? <div className="room-entries">{recent.map(room=><RoomEntry key={room.id} room={room} onRemove={setRemoving}/>)}</div> : <Empty title="Здесь появятся ваши комнаты" text="Создайте комнату или откройте приглашение друга."/>}
       </section>}
       <footer className="cinema-footer"><a href="#rooms" onClick={resetNavigation}>Мои комнаты</a><button onClick={() => { setJoinError(""); setModal("join"); }}>Войти по коду</button><button onClick={() => setModal("help")}>Как смотреть вместе</button></footer>
     </main>
     {auth && <AccountDialog initial={auth} onClose={()=>setAuth(null)} onSuccess={accountChanged}/>}
+    {removing && <RoomRemovalDialog key={removing.id} room={removing} signed={!!user} onClose={()=>setRemoving(null)} onRemoved={result=>removedRoom(removing,result)}/>}
     {(modal === "create" || modal === "add") && <VideoForm accountName={user?.name} key={modal} mode={modal} initialTab={modal === "add" ? "link" : initialTab} selected={selected} onFileRoom={() => create(undefined, "file")} onClose={() => setModal(null)} onSaved={video => { setVideos(old => [video, ...old]); setToast("Фильм добавлен"); }}/>}
     {modal === "join" && <Modal title="Войти в комнату" caption="Вставьте приглашение или код, который прислал ведущий." onClose={() => setModal(null)}>
       <form className="stack-form" onSubmit={join}><label>Приглашение<input autoFocus required value={joinCode} onChange={e => setJoinCode(e.target.value)} placeholder="Ссылка или код комнаты"/></label>

@@ -1,12 +1,5 @@
-import { safe, body, str, db, json, snapshot, getRoom, member, videoInput, sourceMode, randomId, ApiError } from "@/lib/server";
-import { env } from "cloudflare:workers";
+import { safe, body, str, db, json, snapshot, getRoom, member, videoInput, sourceMode, randomId, ApiError, endRelay } from "@/lib/server";
 import { directSourceError } from "@/lib/video-source";
-async function endRelay(code: string, session: string | null) {
-  if (!session || !env.ROOM_RELAY) return;
-  const ns = env.ROOM_RELAY;
-  try { await ns.get(ns.idFromName(code + ":" + session)).fetch("https://relay.internal/end", { method: "POST" }); }
-  catch { /* The relay also checks the authoritative room and expires automatically. */ }
-}
 
 export async function POST(req: Request, context: { params: Promise<{ code: string }> }) { return safe(async () => {
   const { code } = await context.params, input = await body(req);

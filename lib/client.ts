@@ -46,6 +46,11 @@ export function readRecentRooms(): RecentRoom[] {
     typeof entry.title === "string" && (entry.expiresAt === undefined || entry.expiresAt > Date.now()));
 }
 
+export function forgetGuestRoom(id: string) {
+  saveLocal(`vm-room-${id}`, "");
+  saveLocal("vm-recent", readRecentRooms().filter(room => room.id !== id));
+}
+
 // A changed source resets its duration. Media URLs can contain credentials, so only keep a fingerprint.
 function sourceKey(room: RoomState) {
   const source = room.nativeSource?.url || room.videoUrl;
@@ -54,7 +59,7 @@ function sourceKey(room: RoomState) {
   return (hash >>> 0).toString(36);
 }
 
-export function recordViewing(room: RoomState, position: number, duration?: number, promote = false) {
+export function recordViewing(room: RoomState, position: number, duration?: number, promote = false, me?: string) {
   if (room.expiresAt <= Date.now()) return;
   const rows = readRecentRooms(), index = rows.findIndex(entry => entry.id === room.id);
   const key = sourceKey(room);
@@ -63,7 +68,7 @@ export function recordViewing(room: RoomState, position: number, duration?: numb
     index >= 0 && rows[index].sourceKey === key ? rows[index].duration : undefined;
   const updated: RecentRoom = {
     id: room.id, title: room.title, videoTitle: room.videoTitle, poster: room.poster, kind: room.kind,
-    expiresAt: room.expiresAt, sourceKey: key, live,
+    expiresAt: room.expiresAt, sourceKey: key, live, isHost: me ? Number(room.hostId === me) : rows[index]?.isHost,
     position: live || !Number.isFinite(position) ? undefined : Math.max(0, Math.min(position, knownDuration || Infinity)),
     duration: live ? undefined : knownDuration,
   };
@@ -75,5 +80,5 @@ export function recordViewing(room: RoomState, position: number, duration?: numb
 export function rememberRoom(data: Snapshot & { token: string }) {
   if (data.accountMember) return;
   saveLocal(`vm-room-${data.room.id}`, data.token);
-  recordViewing(data.room, data.room.position, undefined, true);
+  recordViewing(data.room, data.room.position, undefined, true, data.me);
 }

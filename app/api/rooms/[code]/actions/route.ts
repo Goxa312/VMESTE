@@ -1,9 +1,32 @@
-import { safe, body, str, db, json, snapshot, getRoom, member, videoInput, sourceMode, randomId, ApiError, endRelay } from "@/lib/server";
+import { safe, body, str, db, json, snapshot, getRoom, member, videoInput, sourceMode, randomId, ApiError, endRelay, sameOriginWrite } from "@/lib/server";
 import { directSourceError } from "@/lib/video-source";
 
 export async function POST(req: Request, context: { params: Promise<{ code: string }> }) { return safe(async () => {
   const { code } = await context.params, input = await body(req);
   const room = await getRoom(code), me = await member(req, code), now = Date.now();
+  if (input.action === "set-break") {
+    sameOriginWrite(req);
+    const { away, previousChange } = input;
+    if (typeof away !== "boolean" || typeof previousChange !== "number" || !Number.isSafeInteger(previousChange) || previousChange < 0)
+      throw new ApiError("Некорректный статус перерыва.");
+    // Only a fresh transition for the caller can pause the authoritative room clock.
+    // A retried request after the host resumed, or one from an old tab, must not pause it again.
+    const change = db().prepare(`UPDATE participants SET on_break=?1, break_changed_at=MAX(?2, break_changed_at+1), seen_at=MAX(seen_at,?2)
+      WHERE room_id=?3 AND id=?4 AND break_changed_at=?5 AND on_break<>?1
+      AND EXISTS(SELECT 1 FROM rooms WHERE id=?3 AND expires_at>?2)`).bind(away ? 1 : 0, now, code, me.id, previousChange);
+    if (away) {
+      const pause = db().prepare(`UPDATE rooms SET position=position+MAX(0,?1-updated_at)/1000.0, playing=0, updated_at=?1, revision=revision+1
+        WHERE id=?2 AND expires_at>?1 AND playing=1 AND share_id IS NULL
+        AND ((media_url<>'' AND media_format IN ('file','hls')) OR (video_url<>'' AND COALESCE(source_mode,?3) IN ('direct','upload')))
+        AND EXISTS(SELECT 1 FROM participants WHERE room_id=?2 AND id=?4 AND on_break=0 AND break_changed_at=?5)`)
+        .bind(now, code, sourceMode(room), me.id, previousChange);
+      await db().batch([pause, change]);
+    } else await change.run();
+    const result = await snapshot(code, me.id);
+    if (result.participants.find(p => p.id === me.id)?.onBreak !== away)
+      throw new ApiError("Статус перерыва уже изменился. Проверьте его ещё раз.", 409);
+    return json(result);
+  }
   let startedShare: string | undefined;
   if (input.action === "message") {
     const text = str(input.text, "Сообщение", 500);

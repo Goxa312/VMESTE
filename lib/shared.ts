@@ -1,7 +1,7 @@
 export type Kind = "film" | "series" | "anime";
 export type Video = { id: string; title: string; url: string; kind: Kind; poster: string; sourceMode?: import("./video-source").SourceMode; subtitle?: string; duration?: string; year?: string; demo?: boolean };
 export type RoomState = { id: string; title: string; videoUrl: string; sourceMode: import("./video-source").SourceMode; shareId: string | null; nativeSource?: import("./video-source").DirectSource | null; videoTitle: string; kind: Kind; poster: string; hostId: string; playing: boolean; position: number; revision: number; updatedAt: number; expiresAt: number };
-export type Person = { id: string; name: string; color: number; online: boolean };
+export type Person = { id: string; name: string; color: number; online: boolean; onBreak: boolean; breakChangedAt: number };
 export type Message = { id: number; participantId: string; name: string; body: string; createdAt: number };
 export type Snapshot = { accountMember?: boolean; room: RoomState; participants: Person[]; messages: Message[]; me: string; serverTime: number };
 export const kinds: Record<Kind, string> = { film: "Фильм", series: "Сериал", anime: "Аниме" };

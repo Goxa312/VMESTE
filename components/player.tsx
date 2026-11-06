@@ -7,7 +7,7 @@ import { directSourceError, mediaFormat, videoUrlError } from "@/lib/video-sourc
 import { attachRoomMedia } from "@/lib/media-playback";
 import { Spinner } from "./ui";
 const seekKeys = new Set(["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End","PageUp","PageDown"]);
-export function Player({ room, isHost, offset, busy, connected, onControl, onChangeVideo, viewControl }: { viewControl: ReactNode; room: RoomState; isHost: boolean; offset: number; busy: boolean; connected: boolean; onControl: (playing: boolean, position: number) => Promise<void>; onChangeVideo: () => void }) {
+export function Player({ room, isHost, offset, busy, connected, onControl, onChangeVideo, footer }: { footer: ReactNode; room: RoomState; isHost: boolean; offset: number; busy: boolean; connected: boolean; onControl: (playing: boolean, position: number) => Promise<void>; onChangeVideo: () => void }) {
   const { t,notice } = useLanguage();
   const video = useRef<HTMLVideoElement>(null), shell = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(!isHost || room.playing), [duration, setDuration] = useState(0), [time, setTime] = useState(0), [volume, setVolume] = useState(.8), [muted, setMuted] = useState(true), [error, setError] = useState(""), [buffering, setBuffering] = useState(false), [retry, setRetry] = useState(0), [blocked, setBlocked] = useState(false);
@@ -127,7 +127,7 @@ export function Player({ room, isHost, offset, busy, connected, onControl, onCha
     {ready && blocked && !playerError && <div className="player-overlay"><button className="button primary" onClick={unlock}><Play size={18}/>{t("Разрешить воспроизведение")}</button></div>}
     {ready && buffering && room.playing && !stalled && !playerError && !blocked && <span className="buffering"><Spinner/>{t("Загрузка видео")}</span>}
     {stalled && !playerError && <div className="player-overlay" role="status"><p>{t("Загрузка остановилась. Проверьте соединение или повторите попытку.")}</p><button className="button subtle" onClick={()=>setRetry(n=>n+1)}>{t("Попробовать снова")}</button></div>}
-    {!isHost && !room.playing && !playerError && !blocked && connected && <div className="player-top"><span>{t("Фильм на паузе у ведущего")}</span></div>}
+    {!isHost && !room.playing && !playerError && !blocked && connected && <div className="player-top"><span>{t("Фильм на паузе")}</span></div>}
     {playerError && <div className="player-overlay player-error" role="alert"><AlertCircle size={29}/><h3>{sourceError ? t("Нужна прямая ссылка на видео") : t("Видео не открылось")}</h3><p>{notice(playerError)}</p>{isHost ? <button className="button primary" onClick={onChangeVideo}>{t("Заменить ссылку")}</button> : <p>{t("Попросите ведущего показать вкладку или выбрать другой источник.")}</p>}{!sourceError && <button className="button subtle" onClick={() => setRetry(r => r + 1)}><RefreshCw size={16}/>{t("Попробовать снова")}</button>}</div>}
     {!connected && <div className="player-top" role="status"><span><i className="amber-dot"/>{t("Восстанавливаем связь")}</span></div>}</div>
     <div className="player-controls">
@@ -167,8 +167,8 @@ export function Player({ room, isHost, offset, busy, connected, onControl, onCha
           </div>}
         </div>
       </details>
-      {viewControl}
     </div>
+    {footer}
     {screenNotice && <p className="player-local-notice" role="status">{notice(screenNotice)}</p>}
   </div>;
 }

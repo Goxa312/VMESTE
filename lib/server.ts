@@ -86,9 +86,9 @@ export async function member(req: Request, code: string, token = bearer(req)) {
 export async function snapshot(code: string, me: string) {
   const [r, people, chat] = await Promise.all([
     getRoom(code),
-    db().prepare("SELECT id, name, color, seen_at, account_id IS NOT NULL AS signed FROM participants WHERE room_id = ? ORDER BY joined_at").bind(code).all<{ id: string; name: string; color: number; seen_at: number; signed: number }>(),
+    db().prepare("SELECT id, name, color, seen_at, on_break, break_changed_at, account_id IS NOT NULL AS signed FROM participants WHERE room_id = ? ORDER BY joined_at").bind(code).all<{ id: string; name: string; color: number; seen_at: number; on_break: number; break_changed_at: number; signed: number }>(),
     db().prepare("SELECT id, participant_id AS participantId, name, body, created_at AS createdAt FROM messages WHERE room_id = ? ORDER BY id DESC LIMIT 100").bind(code).all(),
   ]);
   const nativeSource = r.media_url && r.media_format ? { url: r.media_url, format: r.media_format } : null;
-  return { room: { id: r.id, title: r.title, videoUrl: r.video_url, sourceMode: sourceMode(r), shareId: r.share_id, nativeSource, videoTitle: r.video_title, kind: r.kind, poster: r.poster, hostId: r.host_id, playing: !!r.playing, position: r.position, revision: r.revision, updatedAt: r.updated_at, expiresAt: r.expires_at }, participants: people.results.map(p => ({ id: p.id, name: p.name, color: p.color, online: Date.now() - p.seen_at < 25000 })), messages: chat.results.reverse(), me, accountMember: Boolean(people.results.find(p => p.id === me)?.signed), serverTime: Date.now() };
+  return { room: { id: r.id, title: r.title, videoUrl: r.video_url, sourceMode: sourceMode(r), shareId: r.share_id, nativeSource, videoTitle: r.video_title, kind: r.kind, poster: r.poster, hostId: r.host_id, playing: !!r.playing, position: r.position, revision: r.revision, updatedAt: r.updated_at, expiresAt: r.expires_at }, participants: people.results.map(p => ({ id: p.id, name: p.name, color: p.color, online: Date.now() - p.seen_at < 25000, onBreak: !!p.on_break, breakChangedAt: p.break_changed_at })), messages: chat.results.reverse(), me, accountMember: Boolean(people.results.find(p => p.id === me)?.signed), serverTime: Date.now() };
 }

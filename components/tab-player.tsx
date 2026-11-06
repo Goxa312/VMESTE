@@ -1,5 +1,6 @@
 "use client";
 import { useLanguage } from "./language";
+import { HostBreakAlerts } from "./host-break-alerts";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ExternalLink, FolderOpen, Square } from "lucide-react";
 import { releaseFilm, takeFilm } from "@/lib/local-film";
@@ -9,7 +10,7 @@ import type { RoomState, Snapshot } from "@/lib/shared";
 
 type Capture = { session: string; pageUrl: string; revision: number; stream: MediaStream };
 type Props = {
-  room: RoomState; token: string; host: boolean; hostOnline: boolean; connected: boolean;
+  room: RoomState; people: Snapshot["participants"]; token: string; host: boolean; hostOnline: boolean; connected: boolean;
   onAction: (data: Record<string, unknown>) => Promise<Snapshot & { startedShare?: string }>;
   onSessionChanged: () => Promise<unknown>;
   children?: ReactNode;
@@ -31,7 +32,7 @@ function stopOnExit(code: string, token: string, capture: Capture) {
   }).catch(() => {});
 }
 
-export function TabPlayer({ room, token, host, hostOnline, connected, onAction, onSessionChanged, children }: Props) {
+export function TabPlayer({ room, people, token, host, hostOnline, connected, onAction, onSessionChanged, children }: Props) {
   const { t,notice } = useLanguage();
   const fromFile = room.sourceMode === "local";
   const [film, setFilm] = useState<File | undefined>(() => fromFile && host ? takeFilm(room.id) : undefined);
@@ -222,6 +223,7 @@ export function TabPlayer({ room, token, host, hostOnline, connected, onAction, 
       {host && !local && fromFile && <><label className="button subtle file-picker"><FolderOpen size={17}/>{t("Выбрать файл")}<input type="file" accept="video/*,.mkv" onChange={e => { const chosen = e.target.files?.[0]; if (chosen) { setFilm(chosen); setError(""); } }}/></label><button className="button primary" disabled={!fileUrl || busy || !connected} onClick={() => void start()}>{t("Начать показ файла")}</button></>}
       {host && !local && !fromFile && <><div className="live-buttons"><a className="button subtle" href={room.videoUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={16}/>{t("Открыть сайт")}</a><button className="button primary" disabled={busy || !connected} onClick={() => void start()}>{t("Показать вкладку")}</button></div>
         <label className="sound-option"><input type="checkbox" checked={audio} onChange={e => setAudio(e.target.checked)}/>{t("Передавать звук вкладки")}</label></>}
+      {host && <HostBreakAlerts room={room} people={people} active={!!local}/>}
       {host && local && capture && <button className="button subtle" onClick={() => void stop(capture)}><Square size={14}/>{t("Завершить показ")}</button>}
       {!host && room.shareId && <div className="live-buttons">
         {needsGesture && <button className="button primary" onClick={()=>{if(player.current) allowPlayback(player.current);}}>{t("Разрешить воспроизведение")}</button>}

@@ -50,6 +50,13 @@
       "when": 1793993658443,
       "tag": "0006_room_friends",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793995930788,
+      "tag": "0007_room_breaks",
+      "breakpoints": true
     }
   ]
 }

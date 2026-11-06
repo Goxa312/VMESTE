@@ -7,6 +7,7 @@ import { playbackPosition, type Snapshot, type Video } from "@/lib/shared";
 import { Logo, Spinner, Empty } from "./ui";
 import { TabPlayer } from "./tab-player";
 import { Player } from "./player";
+import { RoomBreakBar } from "./room-break-bar";
 import { PlaybackDetails } from "./playback-details";
 import { FriendsCenter } from "./friends-center";
 import { KinogoPlayer } from "./kinogo-player";
@@ -51,6 +52,15 @@ export default function Room({ code }: { code: string }) {
     const previous = latest.current;
     if (previous && (data.room.revision < previous.room.revision ||
         (data.room.revision === previous.room.revision && data.serverTime < previous.serverTime))) return;
+    // Participant changes have their own version. A delayed poll must not undo a return to the room.
+    if (previous) {
+      const old = new Map(previous.participants.map(p => [p.id, p]));
+      data = { ...data, participants: data.participants.map(person => {
+        const known = old.get(person.id);
+        return known && known.breakChangedAt > person.breakChangedAt
+          ? { ...person, onBreak: known.onBreak, breakChangedAt: known.breakChangedAt } : person;
+      }) };
+    }
     const now = Date.now();
     // A slow poll includes server processing time. A recent, faster round trip is a better clock sample.
     const samples = clockSamples.current.filter(s=>s.at <= now && now-s.at < 30000).slice(-24);
@@ -142,6 +152,15 @@ export default function Room({ code }: { code: string }) {
     apply(data, start);
     return { room: data.room, offset: data.serverTime - (start + Date.now()) / 2 };
   }, [code, token, apply]);
+  async function changeBreak(away: boolean, previousChange: number) {
+    try { await action({ action: "set-break", away, previousChange }); }
+    catch (err) {
+      // The write can succeed even if its reply is lost.
+      await refreshRoom().catch(() => {});
+      const current = latest.current;
+      if (current?.participants.find(p => p.id === current.me)?.onBreak !== away) throw err;
+    }
+  }
   async function control(playing: boolean, position: number) { if (busyRef.current) return; busyRef.current = true; setBusy(true); try { await action({ action: "control", playing, position }); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось синхронизировать"); } finally { busyRef.current = false; setBusy(false); } }
   async function send(text: string) { if (!text.trim() || chatBusy) return; setChatBusy(true); try { await action({ action: "message", text }); setMessage(""); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось отправить"); } finally { setChatBusy(false); } }
   async function copy() {
@@ -172,15 +191,17 @@ export default function Room({ code }: { code: string }) {
   const awaitingFile = room.sourceMode === "upload" && !room.videoUrl;
   const viewControl = <button type="button" className="view-toggle" aria-controls="room-chat" aria-expanded={!filmOnly}
     onClick={() => setFilmOnly(value => !value)}>{filmOnly ? t("Вернуть панели") : t("Только фильм")}</button>;
+  const playerFooter = <RoomBreakBar snapshot={snapshot} connected={connected} capture={needsCapture ? (room.sourceMode === "local" ? "file" : "tab") : null}
+    onChange={changeBreak}>{viewControl}</RoomBreakBar>;
   const roomPlayer = needsCapture
-    ? <TabPlayer key={room.videoUrl} room={room} token={token} host={isHost} hostOnline={online.some(p => p.id === room.hostId)} connected={connected} onAction={action} onSessionChanged={refreshRoom}>
+    ? <TabPlayer key={room.videoUrl} room={room} people={snapshot.participants} token={token} host={isHost} hostOnline={online.some(p => p.id === room.hostId)} connected={connected} onAction={action} onSessionChanged={refreshRoom}>
         {isHost && room.sourceMode === "page" && !watchingKinogo && <button className="text-button" onClick={openSourceSetup}>{t("Есть прямая ссылка на видео?")}</button>}
         {watchingKinogo && <KinogoOption code={code}><KinogoPlayer key={room.videoUrl} room={room} isHost={isHost} offset={offset} connected={connected}
         onControl={async (playing, position) => { await action({ action: "control", playing, position }); }} onRefresh={refreshRoom} onChooseSource={openSourceSetup}/></KinogoOption>}
       </TabPlayer>
     : awaitingFile ? <div className="live-stage"><div className="live-intro"><Clapperboard size={34}/><h2>{t("Фильм ещё загружается")}</h2><p>{isHost ? t("Выберите файл, чтобы начать просмотр в этой комнате.") : t("Плеер появится здесь, как только ведущий загрузит файл.")}</p>{isHost && <button className="button primary" onClick={() => setChange(true)}>{t("Выбрать файл")}</button>}</div></div>
     : <Player key={JSON.stringify([room.videoUrl, room.nativeSource])} room={room} isHost={isHost} offset={offset} busy={busy}
-        connected={connected} onControl={control} viewControl={viewControl} onChangeVideo={room.sourceMode === "page" ? openSourceSetup : () => setChange(true)}/>;
+        connected={connected} onControl={control} footer={playerFooter} onChangeVideo={room.sourceMode === "page" ? openSourceSetup : () => setChange(true)}/>;
   return <div className={`room-page${filmOnly ? " film-only" : ""}`}>
     <header className="room-topbar">
       <Logo/><h1 className="room-film-title" title={room.videoTitle}>{room.videoTitle}</h1>
@@ -203,7 +224,7 @@ export default function Room({ code }: { code: string }) {
       <div className="watch-layout">
         <div className="watch-main" ref={watchMain}>
           {roomPlayer}
-          {(needsCapture || awaitingFile) && <div className="live-view-bar">{viewControl}</div>}
+          {(needsCapture || awaitingFile) && playerFooter}
         </div>
         <aside className="chat-panel" id="room-chat" aria-label={t("Панель комнаты")}>
           <div className="chat-tabs">

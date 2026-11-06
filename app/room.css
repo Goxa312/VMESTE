@@ -67,7 +67,21 @@
 .file-picker input { position:absolute; inset:0; opacity:0; width:100%; cursor:pointer; }
 .file-picker:focus-within { outline:2px solid var(--accent); }
 .live-video { width:100%; max-height:68vh; display:block; aspect-ratio:16/9; object-fit:contain; background:black; }
-.live-view-bar { background:#181615; display:flex; justify-content:flex-end; padding:4px 12px; }
+.room-break-bar { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:0 16px; padding:0 14px; border-top:1px solid var(--line); background:#181615; }
+.break-alert-setting small { display:block; color:var(--muted); font-size:12px; }
+.break-toggle { display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:0 2px; color:var(--muted); white-space:nowrap; font-size:14px; }
+.break-toggle:hover:not(:disabled),.break-toggle[data-away] { color:var(--accent); }
+.break-notes { min-width:0; color:var(--text); font-size:14px; line-height:1.4; overflow-wrap:anywhere; }
+.break-notes p { margin:3px 0; }
+.break-notes .break-request { color:var(--accent); }
+.room-break-bar > .error { grid-column:1/-1; margin:0 0 8px; }
+@media (max-width:650px) {
+  .room-break-bar { grid-template-columns:minmax(0,1fr) auto; gap:0 8px; padding-inline:10px; }
+  .break-toggle { justify-self:start; }
+  .room-break-bar .view-toggle { grid-column:2; grid-row:1; }
+  .break-notes { grid-column:1/-1; grid-row:2; }
+  .break-notes:not(:empty) { padding-bottom:7px; }
+}
 .legacy-source { border-top:1px solid var(--line); padding:13px 17px; }
 .legacy-source > summary { cursor:pointer; color:var(--muted); font-size:14px; }
 .live-stage > .text-button { margin:0 12px 12px; }
@@ -115,6 +129,6 @@
 .film-only :is(.room-topbar,.chat-panel,.room-tools,.room-footer) { display:none; }
 .film-only .room-content { max-width:1680px; padding:clamp(8px,2vw,28px); }
 .film-only .watch-layout { grid-template-columns:minmax(0,1fr); }
-.film-only .video-stage { max-height:calc(100dvh - 100px); }
+.film-only .video-stage { max-height:calc(100dvh - 145px); }
 .film-only .player:fullscreen .video-stage { max-height:none; }
 .film-only .live-video { max-height:calc(100dvh - 170px); }

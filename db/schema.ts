@@ -57,6 +57,8 @@ export const participants = sqliteTable("participants", {
   accountId: text("account_id").references(() => accounts.id),
   tokenHash: text("token_hash").notNull(), name: text("name").notNull(), color: integer("color").notNull(),
   seenAt: integer("seen_at").notNull(), joinedAt: integer("joined_at").notNull(),
+  onBreak: integer("on_break", { mode: "boolean" }).notNull().default(false),
+  breakChangedAt: integer("break_changed_at").notNull().default(0),
 }, t => [index("participants_room_idx").on(t.roomId), uniqueIndex("participants_account_room_idx").on(t.accountId, t.roomId)]);
 export const messages = sqliteTable("messages", {
   id: integer("id").primaryKey({ autoIncrement: true }), roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),

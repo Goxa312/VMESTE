@@ -98,7 +98,12 @@ try {
       rejectHls=false; await btn(g,"Попробовать снова").click();
     }
     await advancing(g); lag=false;
-    await h.locator(".play-toggle").click();
+    if(type==="upload" || type==="page-to-hls") {
+      await btn(g,"На минутку").click();
+      await h.waitForFunction(()=>document.querySelector(".video-stage video")?.paused);
+      await btn(g,"Я вернулся").click();
+      await h.locator(".break-notes").getByText("Снова в комнате — Guest",{exact:true}).waitFor();
+    } else await h.locator(".play-toggle").click();
     await g.waitForFunction(()=>document.querySelector(".video-stage video")?.paused);
     const [a,b]=await Promise.all([state(h),state(g)]);assert.ok(b.muted&&b.w===160);assert.ok(Math.abs(a.time-b.time)<1.35,JSON.stringify({type,a,b}));
     await h.locator(".timeline").focus();await h.keyboard.press("ArrowRight");await h.keyboard.press("Home");
@@ -139,9 +144,12 @@ try {
     const liveLink=await create(origin+"/live.m3u8");await join(g,liveLink);await advancing(g);
     await g.getByText("Прямой эфир",{exact:true}).waitFor();
     assert.equal(await h.locator(".timeline").isVisible(),false);
-    await h.locator(".play-toggle").click();await g.waitForFunction(()=>document.querySelector(".video-stage video")?.paused);
+    await btn(g,"На минутку").click();
+    await Promise.all([h,g].map(p=>p.waitForFunction(()=>document.querySelector(".video-stage video")?.paused)));
+    await btn(g,"Я вернулся").click();
+    await h.locator(".break-notes").getByText("Снова в комнате — Guest",{exact:true}).waitFor();
     await h.locator(".play-toggle").click();await advancing(g);
-    console.log("PASS: a sliding HLS window starts at its live position and follows host pause/resume.");
+    console.log("PASS: a sliding HLS window starts live, pauses for a viewer’s break, and resumes with the host.");
   }
   // Lower only the chooser's threshold; use the normal file-capture path without allocating a huge fixture.
   await hc.route("**/api/media-options",r=>r.fulfill({json:{maxSize:movie.length-1}}));

@@ -72,7 +72,7 @@ try {
     body: '<title>VmesteSignalFixture</title><main>Film</main><script>let n=0;setInterval(()=>document.querySelector("main").textContent="Frame "+(++n),80)</script>',
   }));
   await host.goto(base);
-  await host.getByRole("button", { name: "Свой фильм", exact: true }).click();
+  await host.getByRole("button", { name: "Создать комнату", exact: true }).click();
   const form = host.getByRole("dialog");
   await form.getByLabel("Ссылка на фильм").fill(filmUrl);
   await form.getByLabel("Ваше имя").fill("Ведущий теста");

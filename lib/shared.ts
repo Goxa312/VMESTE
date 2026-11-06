@@ -3,7 +3,7 @@ export type Video = { id: string; title: string; url: string; kind: Kind; poster
 export type RoomState = { id: string; title: string; videoUrl: string; sourceMode: import("./video-source").SourceMode; shareId: string | null; nativeSource?: import("./video-source").DirectSource | null; videoTitle: string; kind: Kind; poster: string; hostId: string; playing: boolean; position: number; revision: number; updatedAt: number; expiresAt: number };
 export type Person = { id: string; name: string; color: number; online: boolean };
 export type Message = { id: number; participantId: string; name: string; body: string; createdAt: number };
-export type Snapshot = { room: RoomState; participants: Person[]; messages: Message[]; me: string; serverTime: number };
+export type Snapshot = { accountMember?: boolean; room: RoomState; participants: Person[]; messages: Message[]; me: string; serverTime: number };
 export const kinds: Record<Kind, string> = { film: "Фильм", series: "Сериал", anime: "Аниме" };
 export const demos: Video[] = [
   { id: "sintel", title: "Синтел", url: "https://media.w3.org/2010/05/sintel/trailer.mp4", kind: "film", poster: "/images/sintel.jpg", subtitle: "Фэнтези · Трейлер", duration: "52 сек", year: "2010", demo: true },

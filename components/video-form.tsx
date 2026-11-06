@@ -11,12 +11,12 @@ import { uploadFilm, type UploadTarget } from "@/lib/upload-client";
 import { Modal, Spinner } from "./ui";
 
 type Tab = "link" | "file";
-type Props = { mode: "create" | "add" | "change"; selected?: Video; initialTab?: Tab; initialUrl?: string; uploadTarget?: UploadTarget;
+type Props = { accountName?: string; mode: "create" | "add" | "change"; selected?: Video; initialTab?: Tab; initialUrl?: string; uploadTarget?: UploadTarget;
   onClose: () => void; onSaved?: (v: Video) => void; onFileRoom?: () => void; onChangeVideo?: (v: Partial<Video>) => Promise<void> };
-export function VideoForm({ mode, selected, initialTab, initialUrl, uploadTarget, onClose, onSaved, onChangeVideo, onFileRoom }: Props) {
+export function VideoForm({ accountName, mode, selected, initialTab, initialUrl, uploadTarget, onClose, onSaved, onChangeVideo, onFileRoom }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>(initialTab || ((selected?.sourceMode === "upload" || selected?.sourceMode === "local") ? "file" : "link"));
-  const [name, setName] = useState(() => typeof window !== "undefined" ? readLocal("vm-name", "") : "");
+  const [name, setName] = useState(() => accountName || (typeof window !== "undefined" ? readLocal("vm-name", "") : ""));
   const [title, setTitle] = useState(selected?.title || ""), [url, setUrl] = useState((selected?.sourceMode === "upload" || selected?.sourceMode === "local") ? "" : selected?.url || initialUrl || "");
   const [editSource, setEditSource] = useState(false);
   const hasInitialSource = Boolean(initialUrl?.trim() || selected?.url);
@@ -54,7 +54,8 @@ export function VideoForm({ mode, selected, initialTab, initialUrl, uploadTarget
       let target = uploadTarget || created.current;
       if (mode === "create" && !created.current) {
         const result = await api<Snapshot & { token: string }>("/api/rooms", undefined, { ...video, name, roomTitle });
-        saveLocal("vm-name", name); rememberRoom(result);
+        if (!result.accountMember) saveLocal("vm-name", name);
+        rememberRoom(result);
         target = created.current = { code: result.room.id, token: result.token, revision: result.room.revision };
       }
       if (liveFile && tab === "file" && file && target) {

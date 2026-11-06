@@ -45,7 +45,28 @@ export default function Room({ code }: { code: string }) {
     latest.current = data; serverOffset.current = data.serverTime - (start + Date.now()) / 2;
     setSnapshot(data); setOffset(serverOffset.current); setConnected(true);
   }, []);
-  useEffect(() => { setToken(readLocal(`vm-room-${code}`, "")); setName(readLocal("vm-name", "")); setInvite(window.location.href.split("?")[0]); setInitialized(true); }, [code]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const reloadAccount = (event: StorageEvent) => { if (event.key === "vm-account-change") window.location.reload(); };
+    window.addEventListener("storage", reloadAccount);
+    setInvite(window.location.href.split("?")[0]);
+    const restore = async () => {
+      const start = Date.now();
+      let nextToken = readLocal(`vm-room-${code}`, ""), nextName = readLocal("vm-name", "");
+      try {
+        const result = await api<(Snapshot & {token:string}) | {token:null; name?:string}>(`/api/rooms/${code}`, undefined, { resume:true }, "POST", controller.signal);
+        if (controller.signal.aborted) return;
+        if (result.token !== null) { nextToken = result.token; apply(result, start); }
+        else if (result.name) nextName = result.name;
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if (err instanceof RequestError && [404,410].includes(err.status)) { setError(err.message); setFatal(true); }
+      }
+      setToken(nextToken); setName(nextName); setInitialized(true);
+    };
+    void restore();
+    return () => { controller.abort(); window.removeEventListener("storage", reloadAccount); };
+  }, [code, apply]);
   useEffect(() => {
     if (!token) return; let alive = true, timer: ReturnType<typeof setTimeout>;
     async function poll() { const start = Date.now(); try { const data = await api<Snapshot>(`/api/rooms/${code}`, token); if (alive) { apply(data, start); setError(""); } } catch (e) { if (alive) { setConnected(false); if (e instanceof RequestError && e.status === 401) { setToken(""); saveLocal(`vm-room-${code}`, ""); } else if (e instanceof RequestError && [404, 410].includes(e.status)) { setError(e.message); setFatal(true); saveLocal("vm-recent", readRecentRooms().filter(room => room.id !== code)); return; } else setError("Связь прервалась. Пытаемся подключиться снова…"); } } if (alive) timer = setTimeout(poll, document.hidden ? 2000 : 850); }
@@ -56,7 +77,7 @@ export default function Room({ code }: { code: string }) {
     if (!viewing || !token) return;
     function record(promote = false) {
       const room = latest.current?.room;
-      if (!room || room.id !== code) return;
+      if (!room || room.id !== code || latest.current?.accountMember) return;
       const duration = watchMain.current?.querySelector<HTMLVideoElement>(".video-stage video")?.duration;
       recordViewing(room, playbackPosition(room, Date.now() + serverOffset.current), duration, promote);
     }
@@ -81,7 +102,7 @@ export default function Room({ code }: { code: string }) {
   const lastMessage = snapshot?.messages.at(-1)?.id;
   useEffect(() => { const box = chatList.current; if (box && (lastSeenMessage.current === undefined || box.scrollHeight - box.clientHeight - box.scrollTop < 120 || latest.current?.messages.at(-1)?.participantId === latest.current?.me)) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" }); lastSeenMessage.current = lastMessage; }, [lastMessage, chatTab]);
   useEffect(() => { if (copied) { const timer = setTimeout(() => setCopied(false), 2500); return () => clearTimeout(timer); } }, [copied]);
-  async function join(e: FormEvent) { e.preventDefault(); setJoining(true); setError(""); const start = Date.now(); try { const data = await api<Snapshot & { token: string }>(`/api/rooms/${code}`, undefined, { name }); rememberRoom(data); saveLocal("vm-name", name); apply(data, start); setToken(data.token); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось войти"); } finally { setJoining(false); } }
+  async function join(e: FormEvent) { e.preventDefault(); setJoining(true); setError(""); const start = Date.now(); try { const data = await api<Snapshot & { token: string }>(`/api/rooms/${code}`, undefined, { name }); rememberRoom(data); if (!data.accountMember) saveLocal("vm-name", name); apply(data, start); setToken(data.token); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось войти"); } finally { setJoining(false); } }
   async function action(data: Record<string, unknown>) { const start = Date.now(); const result = await api<Snapshot & { startedShare?: string }>(`/api/rooms/${code}/actions`, token, { ...data, revision: latest.current?.room.revision }); apply(result, start); return result; }
   const refreshRoom = useCallback(async () => {
     const start = Date.now();

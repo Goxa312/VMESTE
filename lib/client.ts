@@ -35,7 +35,7 @@ export async function api<T>(url: string, token?: string, data?: unknown, method
 }
 export type RecentRoom = {
   id: string; title: string; videoTitle: string; poster: string; kind?: Kind; expiresAt?: number;
-  position?: number; duration?: number; live?: boolean; sourceKey?: string;
+  position?: number; duration?: number; live?: boolean; sourceKey?: string; isHost?: number;
 };
 
 export function readRecentRooms(): RecentRoom[] {
@@ -73,6 +73,7 @@ export function recordViewing(room: RoomState, position: number, duration?: numb
 }
 
 export function rememberRoom(data: Snapshot & { token: string }) {
+  if (data.accountMember) return;
   saveLocal(`vm-room-${data.room.id}`, data.token);
   recordViewing(data.room, data.room.position, undefined, true);
 }

@@ -1,12 +1,19 @@
 import { routeRelay } from "./room-relay";
 export { RoomRelay } from "./room-relay";
+import { db } from "../lib/server";
 import { cleanExpiredMedia } from "../lib/uploads";
 import handler from "vinext/server/fetch-handler";
 import { runWithConnectorBinding } from "../lib/connector-context";
 import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 
 const worker = {
-  async scheduled() { await cleanExpiredMedia(); },
+  async scheduled() {
+    const now = Date.now();
+    await Promise.all([cleanExpiredMedia(), db().batch([
+      db().prepare("DELETE FROM account_sessions WHERE expires_at<=?").bind(now),
+      db().prepare("DELETE FROM account_limits WHERE expires_at<=?").bind(now),
+    ])]);
+  },
   fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
     const relay = /^\/api\/rooms\/([a-f0-9]{12})\/relay\/([a-f0-9]{32})$/.exec(new URL(request.url).pathname);
     if (relay) return routeRelay(request, env, relay[1], relay[2]);

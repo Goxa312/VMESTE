@@ -12,6 +12,7 @@ const worker = {
     await Promise.all([cleanExpiredMedia(), db().batch([
       db().prepare("DELETE FROM account_sessions WHERE expires_at<=?").bind(now),
       db().prepare("DELETE FROM account_limits WHERE expires_at<=?").bind(now),
+      db().prepare("DELETE FROM room_invites WHERE id IN (SELECT i.id FROM room_invites i JOIN rooms r ON r.id=i.room_id WHERE r.expires_at<=? LIMIT 500)").bind(now),
     ])]);
   },
   fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {

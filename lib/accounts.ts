@@ -18,14 +18,23 @@ async function passwordMatches(password: string, stored: string) {
   if (scheme !== digestPrefix || !/^[a-f0-9]{32}$/.test(salt) || !/^[a-f0-9]{64}$/.test(key)) return false;
   return timingSafeEqual(await digest(password, salt), Buffer.from(key, "hex"));
 }
+export function accountLogin(value: unknown) {
+  const name = typeof value === "string" ? value.trim().normalize("NFKC") : "";
+  const login = name.toLowerCase();
+  if (!/^[а-яёa-z0-9][а-яёa-z0-9_.-]{2,23}$/u.test(login)) throw new ApiError("Логин — от 3 до 24 букв, цифр, точек, дефисов или подчёркиваний.");
+  return { name, login };
+}
+export async function attemptBucket(key: string, now: number) {
+  return db().prepare(
+    "INSERT INTO account_limits(key,attempts,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN expires_at<=? THEN 1 ELSE attempts+1 END, expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END RETURNING attempts"
+  ).bind(await hash(key), now + 15 * 60000, now, now);
+}
 async function limitAttempt(req: Request, action: string, login: string) {
-  const now = Date.now(), expiry = now + 15 * 60000;
+  const now = Date.now();
   const ip = req.headers.get("CF-Connecting-IP") ?? "local";
   const keys = ["ip:" + ip];
   if (action !== "register") keys.push((action === "login" ? "login:" : "account:") + login);
-  const statements = await Promise.all(keys.map(async key => db().prepare(
-    "INSERT INTO account_limits(key,attempts,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN expires_at<=? THEN 1 ELSE attempts+1 END, expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END RETURNING attempts"
-  ).bind(await hash(action + ":" + key), expiry, now, now)));
+  const statements = await Promise.all(keys.map(key => attemptBucket(action + ":" + key, now)));
   const results = await db().batch<{attempts:number}>(statements);
   const limit = action === "register" ? 6 : action === "login" ? 30 : 10;
   if (results.some((row, i) => row.results[0].attempts > (i === 0 ? limit : Math.min(limit,15))))
@@ -116,9 +125,8 @@ export async function authenticate(req: Request, input: Record<string, unknown>)
   }
   if (action !== "login" && action !== "register") throw new ApiError("Выберите вход или регистрацию.");
   const email = action === "register" ? registrationEmail(input.email) : null;
-  const name = typeof input.login === "string" ? input.login.trim().normalize("NFKC") : "";
-  const login = name.toLowerCase(), password = input.password;
-  if (!/^[а-яёa-z0-9][а-яёa-z0-9_.-]{2,23}$/u.test(login)) throw new ApiError("Логин — от 3 до 24 букв, цифр, точек, дефисов или подчёркиваний.");
+  const { name, login } = accountLogin(input.login);
+  const password = input.password;
   if (action === "register") checkNewPassword(input);
   if (typeof password !== "string" || !password || password.length > 128) throw new ApiError("Введите логин и пароль.");
   await limitAttempt(req, action, login);

@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, real, index, uniqueIndex, blob, primaryKey } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { sqliteTable, text, integer, real, index, uniqueIndex, blob, primaryKey, check } from "drizzle-orm/sqlite-core";
 export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(), login: text("login").notNull().unique(), name: text("name").notNull(),
   email: text("email").unique(), // Existing accounts can still sign in without an address.
@@ -27,6 +28,30 @@ export const rooms = sqliteTable("rooms", {
   position: real("position").notNull().default(0), revision: integer("revision").notNull().default(0),
   updatedAt: integer("updated_at").notNull(), createdAt: integer("created_at").notNull(), expiresAt: integer("expires_at").notNull(),
 });
+export const friendships = sqliteTable("friendships", {
+  id: text("id").primaryKey(),
+  firstId: text("first_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+  secondId: text("second_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+  requestedBy: text("requested_by").notNull(), createdAt: integer("created_at").notNull(),
+  acceptedAt: integer("accepted_at"),
+}, t => [
+  uniqueIndex("friends_pair_idx").on(t.firstId, t.secondId),
+  index("friends_second_idx").on(t.secondId),
+  check("friends_order", sql`${t.firstId} < ${t.secondId}`),
+  check("friends_requester", sql`${t.requestedBy} IN (${t.firstId}, ${t.secondId})`),
+]);
+export const roomInvites = sqliteTable("room_invites", {
+  id: text("id").primaryKey(),
+  roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  friendshipId: text("friendship_id").notNull().references(() => friendships.id, { onDelete: "cascade" }),
+  recipientId: text("recipient_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at").notNull(),
+}, t => [
+  uniqueIndex("room_invites_recipient_room_idx").on(t.recipientId, t.roomId),
+  index("room_invites_friendship_idx").on(t.friendshipId),
+  index("room_invites_room_idx").on(t.roomId),
+]);
+
 export const participants = sqliteTable("participants", {
   id: text("id").primaryKey(), roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
   accountId: text("account_id").references(() => accounts.id),

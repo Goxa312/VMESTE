@@ -8,6 +8,7 @@ import { Logo, Spinner, Empty } from "./ui";
 import { TabPlayer } from "./tab-player";
 import { Player } from "./player";
 import { PlaybackDetails } from "./playback-details";
+import { FriendsCenter } from "./friends-center";
 import { KinogoPlayer } from "./kinogo-player";
 import { RoomSourceDialog } from "./room-source-dialog";
 import { extensionRequest } from "@/lib/kinogo-bridge";
@@ -28,7 +29,7 @@ function KinogoOption({ code, children }: { code: string; children: ReactNode })
 }
 
 export default function Room({ code }: { code: string }) {
-  const [detailsOpen,setDetailsOpen] = useState(false);
+  const [detailsOpen,setDetailsOpen] = useState(false), [friendsOpen,setFriendsOpen] = useState(false);
   const { t,notice,locale } = useLanguage();
   const [token, setToken] = useState(""), [initialized, setInitialized] = useState(false), [snapshot, setSnapshot] = useState<Snapshot>(), [name, setName] = useState(""), [error, setError] = useState(""), [fatal, setFatal] = useState(false), [connected, setConnected] = useState(false), [joining, setJoining] = useState(false), [busy, setBusy] = useState(false), [chatBusy, setChatBusy] = useState(false), [message, setMessage] = useState(""), [change, setChange] = useState(false), [copied, setCopied] = useState(false), [invite, setInvite] = useState("");
   const [filmOnly, setFilmOnly] = useState(false);
@@ -145,8 +146,9 @@ export default function Room({ code }: { code: string }) {
   async function send(text: string) { if (!text.trim() || chatBusy) return; setChatBusy(true); try { await action({ action: "message", text }); setMessage(""); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось отправить"); } finally { setChatBusy(false); } }
   async function copy() {
     try { await navigator.clipboard.writeText(invite); setCopied(true); setInviteFallback(false); }
-    catch { setInviteFallback(true); }
+    catch { setFriendsOpen(false); setInviteFallback(true); }
   }
+  function inviteFriend() { if (snapshot?.accountMember) setFriendsOpen(true); else void copy(); }
   const isHost = snapshot?.me === snapshot?.room.hostId;
   const online = snapshot?.participants.filter(p => p.online) || [];
   if (!initialized || (token && !snapshot && !fatal)) return <div className="room-loading"><LanguageSwitch/><Logo/><Spinner/><p>{notice(error) || t("Готовим ваш кинозал…")}</p><a href="/" className="text-button">{t("Вернуться в библиотеку")}</a></div>;
@@ -182,12 +184,13 @@ export default function Room({ code }: { code: string }) {
   return <div className={`room-page${filmOnly ? " film-only" : ""}`}>
     <header className="room-topbar">
       <Logo/><h1 className="room-film-title" title={room.videoTitle}>{room.videoTitle}</h1>
-      <button className="invite-action" onClick={() => void copy()}>
+      <button className="invite-action" onClick={inviteFriend}>
         {copied ? <Check size={18}/> : <Link2 size={18}/>}
         <span aria-live="polite">{copied ? t("Ссылка скопирована") : t("Пригласить друга")}</span>
       </button><LanguageSwitch/>
     </header>
     <main className="room-content">
+      {snapshot.accountMember && <FriendsCenter open={friendsOpen} room={code} copied={copied} copyLink={() => void copy()} onOpen={() => setFriendsOpen(true)} onClose={() => setFriendsOpen(false)}/>}
       {inviteFallback && <div className="manual-invite">
         <label htmlFor="invite-link">{t("Ссылка для друга")}</label>
         <input id="invite-link" ref={inviteInput} readOnly value={invite} onFocus={e => e.target.select()}/>
@@ -230,7 +233,7 @@ export default function Room({ code }: { code: string }) {
               <div><strong>{p.name}{p.id === snapshot.me && t(" (вы)")}</strong>
                 <span>{p.id === room.hostId ? (p.online ? t("Ведущий") : t("Ведущий · не в сети")) : (p.online ? t("В комнате") : t("Не в сети"))}</span></div>
             </div>)}
-            <button className="text-link" onClick={() => void copy()}>{t("Пригласить друга в комнату")}</button>
+            <button className="text-link" onClick={inviteFriend}>{t("Пригласить друга в комнату")}</button>
           </div>}
         </aside>
       </div>

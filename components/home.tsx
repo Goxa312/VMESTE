@@ -10,6 +10,7 @@ import { Empty, Logo, Modal, Spinner } from "./ui";
 import { VideoForm } from "./video-form";
 import { RecoveryDialog } from "./recovery-dialog";
 import { AccountDialog } from "./account-dialog";
+import { FriendsCenter } from "./friends-center";
 import { RoomRemovalDialog, type Removal } from "./room-removal-dialog";
 import { Rankings } from "./rankings";
 import { chartAliases, chartFilms as rankedTitles } from "@/lib/charts";
@@ -69,7 +70,7 @@ function FilmCard({ title, poster, detail, onWatch, saved, onSave, onDelete }: {
 
 export default function Home() {
   const { locale, t, notice } = useLanguage();
-  const [manageCode, setManageCode] = useState(false);
+  const [manageCode, setManageCode] = useState(false), [friendsOpen, setFriendsOpen] = useState(false);
   const [view, setView] = useState<View>("home");
   const [search, setSearch] = useState(""), [sort, setSort] = useState("new"), [category, setCategory] = useState("all");
   const [videos, setVideos] = useState<Video[]>([]), [favorites, setFavorites] = useState<string[]>([]), [recent, setRecent] = useState<RecentRoom[]>([]);
@@ -242,7 +243,7 @@ export default function Home() {
       <div className="profile" ref={menu}><LanguageSwitch/>
         {user ? <>
           <button ref={menuButton} className="account-trigger" aria-label={t("Профиль: {0}", user.name)} aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}><UserRound size={18}/><span>{user.name}</span><ChevronDown size={14}/></button>
-          {menuOpen && <div className="profile-menu" id="viewing-menu"><a href="#rooms" onClick={resetNavigation}>{t("Мои комнаты")}</a>
+          {menuOpen && <div className="profile-menu" id="viewing-menu"><button onClick={() => { setMenuOpen(false); setFriendsOpen(true); }}>{t("Друзья")}</button><a href="#rooms" onClick={resetNavigation}>{t("Мои комнаты")}</a>
             <button onClick={()=>{setMenuOpen(false);setJoinError("");setModal("join");}}>{t("Войти по коду")}</button>
             <button onClick={()=>{setMenuOpen(false);setManageCode(true);}}>{t("Резервный код")}</button>
             <button onClick={()=>void logout()}>{t("Выйти из аккаунта")}</button></div>}
@@ -250,6 +251,7 @@ export default function Home() {
       </div>
     </header>
     <main className="cinema-main">
+      {user && <FriendsCenter key={user.id} open={friendsOpen} onOpen={() => setFriendsOpen(true)} onClose={() => setFriendsOpen(false)}/>}
       {profileError && <p className="notice" role="alert">{notice(profileError)}<button onClick={()=>window.location.reload()}>{t("Повторить")}</button></p>}
       {view === "home" && !query && <>
         <Rankings onWatch={watch} favorites={favorites} onSave={favorite}/>
@@ -302,7 +304,7 @@ export default function Home() {
         {joinError && <p className="error" role="alert">{notice(joinError)}</p>}<button className="button primary full">{t("Войти")}</button></form></Modal>}
     {modal === "help" && <Modal title={t("Как смотреть вместе")} onClose={() => setModal(null)}>
       <div className="help-steps"><p><b>{t("Выберите фильм")}</b>{t("Добавьте ссылку или файл через «Создать комнату». Для карточек из подборки понадобится ваш источник. У короткометражек в каталоге он уже есть.")}</p>
-        <p><b>{t("Пригласите друга")}</b>{t("Скопируйте ссылку в комнате и отправьте её другу. Приглашение действует семь дней.")}</p><p><b>{t("Смотрите вместе")}</b>{t("Ведущий управляет воспроизведением. Фильмом с другого сайта можно поделиться через показ вкладки.")}</p></div></Modal>}
+        <p><b>{t("Пригласите друга")}</b>{t("В комнате нажмите «Пригласить друга». Выберите друга из списка или скопируйте ссылку для гостя.")}</p><p><b>{t("Смотрите вместе")}</b>{t("Ведущий управляет воспроизведением. Фильмом с другого сайта можно поделиться через показ вкладки.")}</p></div></Modal>}
     {toast && <div className="toast" role="status"><Check size={16}/>{notice(toast)}</div>}
   </div>;
 }

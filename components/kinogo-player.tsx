@@ -1,4 +1,5 @@
 "use client";
+import { useLanguage } from "./language";
 import { useEffect, useRef, useState } from "react";
 import { Check, ExternalLink, RefreshCw, Unplug } from "lucide-react";
 import { EXTENSION_VERSION, extensionRequest, needsExtensionUpdate } from "@/lib/kinogo-bridge";
@@ -12,6 +13,7 @@ export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRef
   onRefresh: () => Promise<{ room: RoomState; offset: number }>;
   onChooseSource: () => void;
 }) {
+  const { t,notice } = useLanguage();
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const current = useRef({ room, isHost, offset, connected, onControl, onRefresh });
   useEffect(() => { current.current = { room, isHost, offset, connected, onControl, onRefresh }; }, [room, isHost, offset, connected, onControl, onRefresh]);
@@ -55,37 +57,37 @@ export function KinogoPlayer({ room, isHost, offset, connected, onControl, onRef
     catch (e) { setError(e instanceof Error ? e.message : "Не удалось подключить Киного"); }
     finally { setBusy(false); }
   }
-  return <section className="player kinogo-player" aria-label="Совместный просмотр Киного">
-    <h2>Плеер комнаты</h2>
-    <p>{isHost ? "Подключите видео один раз. Друзья смогут смотреть его в этой комнате по приглашению." : "Когда ведущий подключит видео, плеер появится здесь автоматически."}</p>
-    {isHost && <button className="button primary" onClick={onChooseSource}>Смотреть в комнате</button>}
-    <details className="kinogo-external" open={extension.connected || undefined}><summary>Просмотр на Киного через расширение</summary>
+  return <section className="player kinogo-player" aria-label={t("Совместный просмотр Киного")}>
+    <h2>{t("Плеер комнаты")}</h2>
+    <p>{isHost ? t("Подключите видео один раз. Друзья смогут смотреть его в этой комнате по приглашению.") : t("Когда ведущий подключит видео, плеер появится здесь автоматически.")}</p>
+    {isHost && <button className="button primary" onClick={onChooseSource}>{t("Смотреть в комнате")}</button>}
+    <details className="kinogo-external" open={extension.connected || undefined}><summary>{t("Просмотр на Киного через расширение")}</summary>
     <div className="kinogo-external-controls">
-    <p>Запустите фильм на Киного — длинное видео подключится автоматически. Комнату оставьте открытой для связи и чата.</p>
-    <div className="kinogo-steps" aria-label="Подключение просмотра">
-      <span className={reachable ? "done" : ""}>{reachable ? <Check size={15}/> : "1"} Расширение</span>
-      <span className={extension.connected && reachable ? "done" : ""}>{extension.connected && reachable ? <Check size={15}/> : "2"} Киного</span>
-      <span className={extension.hasPlayer && reachable ? "done" : ""}>{extension.hasPlayer && reachable ? <Check size={15}/> : "3"} Синхронизация</span>
+    <p>{t("Запустите фильм на Киного — длинное видео подключится автоматически. Комнату оставьте открытой для связи и чата.")}</p>
+    <div className="kinogo-steps" aria-label={t("Подключение просмотра")}>
+      <span className={reachable ? "done" : ""}>{reachable ? <Check size={15}/> : "1"}{t(" Расширение")}</span>
+      <span className={extension.connected && reachable ? "done" : ""}>{extension.connected && reachable ? <Check size={15}/> : "2"}{t(" Киного")}</span>
+      <span className={extension.hasPlayer && reachable ? "done" : ""}>{extension.hasPlayer && reachable ? <Check size={15}/> : "3"}{t(" Синхронизация")}</span>
     </div>
-    <p className="kinogo-status" role="status" aria-live="polite">{checking && !reachable ? "Проверяем связь с расширением…" : !reachable ? extension.installed ? "Связь с расширением прервалась" : "Расширение пока не подключилось к этому сайту" : updateRequired ? `Доступна новая версия ${EXTENSION_VERSION}` : extension.connected ? extension.hasPlayer ? "Плеер подключён · синхронизация включена" : extension.recovering ? "Восстанавливаем загрузку Киного…" : extension.pageTimedOut ? "Киного пока не ответил" : extension.pageReady ? "Запустите фильм во вкладке Киного" : "Ждём загрузку Киного…" : `Расширение ${extension.version} готово`}</p>
+    <p className="kinogo-status" role="status" aria-live="polite">{checking && !reachable ? t("Проверяем связь с расширением…") : !reachable ? extension.installed ? t("Связь с расширением прервалась") : t("Расширение пока не подключилось к этому сайту") : updateRequired ? t("Доступна новая версия {0}", EXTENSION_VERSION) : extension.connected ? extension.hasPlayer ? t("Плеер подключён · синхронизация включена") : extension.recovering ? t("Восстанавливаем загрузку Киного…") : extension.pageTimedOut ? t("Киного пока не ответил") : extension.pageReady ? t("Запустите фильм во вкладке Киного") : t("Ждём загрузку Киного…") : t("Расширение {0} готово", extension.version ?? "—")}</p>
     {reachable && !updateRequired ? <>
-      <button className="button primary" disabled={busy || !connected || extension.recovering} onClick={() => void connect()}>{busy || extension.recovering ? <Spinner/> : <ExternalLink size={17}/>} {extension.recovering ? "Восстанавливаем Киного…" : extension.pageTimedOut ? "Повторить загрузку Киного" : extension.connected ? "К фильму" : "Смотреть на Киного"}</button>
-      {!connected && <small>Восстанавливаем связь с комнатой…</small>}
-      {extension.connected && <button className="text-button" onClick={() => void extensionRequest("disconnect").then(setExtension).catch(e => setError(e.message))}><Unplug size={15}/>Отключить просмотр</button>}
+      <button className="button primary" disabled={busy || !connected || extension.recovering} onClick={() => void connect()}>{busy || extension.recovering ? <Spinner/> : <ExternalLink size={17}/>} {extension.recovering ? t("Восстанавливаем Киного…") : extension.pageTimedOut ? t("Повторить загрузку Киного") : extension.connected ? t("К фильму") : t("Смотреть на Киного")}</button>
+      {!connected && <small>{t("Восстанавливаем связь с комнатой…")}</small>}
+      {extension.connected && <button className="text-button" onClick={() => void extensionRequest("disconnect").then(setExtension).catch(e => setError(e.message))}><Unplug size={15}/>{t("Отключить просмотр")}</button>}
     </> : <div className="kinogo-actions">
-      <button className="button subtle" disabled={checking} onClick={check}>{checking ? <Spinner/> : <RefreshCw size={16}/>}Проверить подключение</button>
-      <a className={`button ${updateRequired ? "primary" : "subtle"}`} href="/kinogo-extension" target="_blank" rel="noreferrer">{updateRequired ? `Обновить до ${EXTENSION_VERSION}` : "Установка и помощь"}<ExternalLink size={16}/></a>
+      <button className="button subtle" disabled={checking} onClick={check}>{checking ? <Spinner/> : <RefreshCw size={16}/>}{t("Проверить подключение")}</button>
+      <a className={`button ${updateRequired ? "primary" : "subtle"}`} href="/kinogo-extension" target="_blank" rel="noreferrer">{updateRequired ? t("Обновить до {0}", EXTENSION_VERSION) : t("Установка и помощь")}<ExternalLink size={16}/></a>
     </div>}
-    {!reachable && !checking && <p className="kinogo-hint">Уже установлено? Откройте расширение для Киного в Chrome и нажмите «Восстановить связь». Для старой копии из папки проекта нажмите ↻ на странице расширений.</p>}
-    <details className="kinogo-help"><summary>Если что-то не подключается</summary>
-      <p>Если Киного остаётся пустым при повторном открытии, обновите расширение до {EXTENSION_VERSION}, откройте его значок и один раз включите «Автовосстановление Киного». При зависании оно сбросит данные только Киного и повторит загрузку. Возможен выход из аккаунта Киного.</p>
-      <p>Обе вкладки должны быть в одном профиле Chrome или Edge. Для инкогнито нужно отдельно разрешить работу расширения. На другом компьютере расширение тоже нужно установить.</p>
-      <p>Короткий ролик или другой плеер выберите кнопкой «Подключить это видео» после рекламы. У всех участников должны совпадать фильм и перевод.</p>
-      <a className="text-button" href={room.videoUrl} target="_blank" rel="noreferrer">Открыть исходную страницу Киного <ExternalLink size={14}/></a>
-      {!reachable && connectionError && <small>{connectionError}</small>}
+    {!reachable && !checking && <p className="kinogo-hint">{t("Уже установлено? Откройте расширение для Киного в Chrome и нажмите «Восстановить связь». Для старой копии из папки проекта нажмите ↻ на странице расширений.")}</p>}
+    <details className="kinogo-help"><summary>{t("Если что-то не подключается")}</summary>
+      <p>{t("Если Киного остаётся пустым при повторном открытии, обновите расширение до ")}{EXTENSION_VERSION}{t(", откройте его значок и один раз включите «Автовосстановление Киного». При зависании оно сбросит данные только Киного и повторит загрузку. Возможен выход из аккаунта Киного.")}</p>
+      <p>{t("Обе вкладки должны быть в одном профиле Chrome или Edge. Для инкогнито нужно отдельно разрешить работу расширения. На другом компьютере расширение тоже нужно установить.")}</p>
+      <p>{t("Короткий ролик или другой плеер выберите кнопкой «Подключить это видео» после рекламы. У всех участников должны совпадать фильм и перевод.")}</p>
+      <a className="text-button" href={room.videoUrl} target="_blank" rel="noreferrer">{t("Открыть исходную страницу Киного ")}<ExternalLink size={14}/></a>
+      {!reachable && connectionError && <small>{notice(connectionError)}</small>}
     </details>
-    {(error || extension.error) && <p className="error" role="alert">{error || extension.error}</p>}
-    <small>{isHost ? "Ваши запуск, пауза и перемотка на Киного передаются участникам." : "Воспроизведением управляет ведущий. Громкость меняется только у вас."}</small>
+    {(error || extension.error) && <p className="error" role="alert">{notice(error || extension.error || "")}</p>}
+    <small>{isHost ? t("Ваши запуск, пауза и перемотка на Киного передаются участникам.") : t("Воспроизведением управляет ведущий. Громкость меняется только у вас.")}</small>
     </div></details>
   </section>;
 }

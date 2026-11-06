@@ -36,6 +36,7 @@ try {
   assert.ok(await registration.evaluate(el=>el.scrollWidth<=el.clientWidth));
   await repeat.fill(password);
   await registration.getByRole("button",{name:"Создать аккаунт"}).click();
+  await host.getByRole("button",{name:"Я сохранил код"}).click();
   await host.getByRole("button",{name:"Профиль: "+login}).waitFor();
   await host.setViewportSize({width:1280,height:800});
   await host.getByRole("button",{name:"Все 100 фильмов"}).click();

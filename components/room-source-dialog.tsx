@@ -1,4 +1,5 @@
 "use client";
+import { useLanguage } from "./language";
 import { useEffect, useRef, useState } from "react";
 import { extensionRequest, needsExtensionUpdate } from "@/lib/kinogo-bridge";
 import { attachRoomMedia } from "@/lib/media-playback";
@@ -7,6 +8,7 @@ import { directSourceError, isKinogoPage, mediaFormat, type DirectSource } from 
 import { Modal, Spinner } from "./ui";
 
 function Preview({ source, onReady, onTryAnother }: { source: DirectSource; onReady: (ready: boolean) => void; onTryAnother?: () => void }) {
+  const { t,notice: localize } = useLanguage();
   const video = useRef<HTMLVideoElement>(null);
   const [message, setMessage] = useState("Загружаем первый кадр…");
   const [failed, setFailed] = useState(false), [slow, setSlow] = useState(false);
@@ -54,9 +56,9 @@ function Preview({ source, onReady, onTryAnother }: { source: DirectSource; onRe
       detach();
     };
   }, [source, onReady]);
-  return <div className="source-preview"><video ref={video} controls playsInline preload="auto" aria-label="Проверка фильма"/>
-    <p role="status">{message}{slow && " Загрузка занимает больше обычного."}</p>
-    {(failed || slow) && onTryAnother && <button type="button" className="button subtle" onClick={onTryAnother}>Проверить другой найденный поток</button>}
+  return <div className="source-preview"><video ref={video} controls playsInline preload="auto" aria-label={t("Проверка фильма")}/>
+    <p role="status">{localize(message)}{slow && t(" Загрузка занимает больше обычного.")}</p>
+    {(failed || slow) && onTryAnother && <button type="button" className="button subtle" onClick={onTryAnother}>{t("Проверить другой найденный поток")}</button>}
   </div>;
 }
 
@@ -65,6 +67,7 @@ type Props = {
   onApply: (source: DirectSource | null) => Promise<void>;
 };
 export function RoomSourceDialog({ room, offset, connected, onClose, onApply }: Props) {
+  const { t,notice: localize } = useLanguage();
   const [url, setUrl] = useState(room.nativeSource?.url || "");
   const [format, setFormat] = useState<"auto" | DirectSource["format"]>(room.nativeSource?.format || "auto");
   const [preview, setPreview] = useState<DirectSource | null>(null);
@@ -115,23 +118,23 @@ export function RoomSourceDialog({ room, offset, connected, onClose, onApply }: 
   }
   const previewIndex = candidates.findIndex(item => item.url === preview?.url);
   const nextCandidate = candidates.length > 1 && previewIndex >= 0 ? candidates[(previewIndex + 1) % candidates.length] : undefined;
-  return <Modal title="Смотреть в комнате" caption="Проверьте кадр фильма перед тем, как включить общий плеер." onClose={onClose}>
+  return <Modal title={t("Смотреть в комнате")} caption={t("Проверьте кадр фильма перед тем, как включить общий плеер.")} onClose={onClose}>
     <div className="stack-form">
-      {!room.nativeSource && isKinogoPage(room.videoUrl) && <div className="source-import"><button className="button subtle" disabled={working || !connected} onClick={() => void importFilm()}>Взять из Киного</button>
-        <small>Использует запущенный фильм и <a href="/kinogo-extension" target="_blank" rel="noreferrer">расширение ведущего</a>. Прямую ссылку можно вставить ниже.</small></div>}
-      {candidates.length > 1 && <label>Найденные потоки<select value={candidates.findIndex(x => x.url === url)} onChange={e => { const item = candidates[Number(e.target.value)]; if (item) select(item); }}>
-        <option value={-1}>Выберите поток</option>{candidates.map((item, index) => <option key={item.url} value={index}>{index + 1}. {item.format === "hls" ? "HLS" : "Видео"} · {new URL(item.url).hostname} · {new URL(item.url).pathname.split("/").pop()?.slice(0, 48)}</option>)}</select></label>}
-      <label>Прямая ссылка на видео<input type="url" disabled={working} value={url} maxLength={4000} placeholder="https://…/film.mp4 или playlist.m3u8" onChange={e => {
+      {!room.nativeSource && isKinogoPage(room.videoUrl) && <div className="source-import"><button className="button subtle" disabled={working || !connected} onClick={() => void importFilm()}>{t("Взять из Киного")}</button>
+        <small>{t("Использует запущенный фильм и ")}<a href="/kinogo-extension" target="_blank" rel="noreferrer">{t("расширение ведущего")}</a>{t(". Прямую ссылку можно вставить ниже.")}</small></div>}
+      {candidates.length > 1 && <label>{t("Найденные потоки")}<select value={candidates.findIndex(x => x.url === url)} onChange={e => { const item = candidates[Number(e.target.value)]; if (item) select(item); }}>
+        <option value={-1}>{t("Выберите поток")}</option>{candidates.map((item, index) => <option key={item.url} value={index}>{index + 1}. {item.format === "hls" ? "HLS" : t("Видео")} · {new URL(item.url).hostname} · {new URL(item.url).pathname.split("/").pop()?.slice(0, 48)}</option>)}</select></label>}
+      <label>{t("Прямая ссылка на видео")}<input type="url" disabled={working} value={url} maxLength={4000} placeholder={t("https://…/film.mp4 или playlist.m3u8")} onChange={e => {
         setUrl(e.target.value); setPreview(null); setReady(false); setNotice("");
       }}/></label>
-      <label>Формат<select disabled={working} value={format} onChange={e => { setFormat(e.target.value as typeof format); setPreview(null); setReady(false); }}>
-        <option value="auto">Определить по ссылке</option><option value="file">Видеофайл (MP4, WebM)</option><option value="hls">Плейлист HLS</option></select></label>
-      <button className="button subtle" disabled={working || !url.trim()} onClick={() => check({ url: url.trim(), format: format === "auto" ? mediaFormat(url.trim()) : format })}>Проверить видео</button>
+      <label>{t("Формат")}<select disabled={working} value={format} onChange={e => { setFormat(e.target.value as typeof format); setPreview(null); setReady(false); }}>
+        <option value="auto">{t("Определить по ссылке")}</option><option value="file">{t("Видеофайл (MP4, WebM)")}</option><option value="hls">{t("Плейлист HLS")}</option></select></label>
+      <button className="button subtle" disabled={working || !url.trim()} onClick={() => check({ url: url.trim(), format: format === "auto" ? mediaFormat(url.trim()) : format })}>{t("Проверить видео")}</button>
       {preview && <Preview key={preview.format + preview.url} source={preview} onReady={setReady}
         onTryAnother={nextCandidate ? () => select(nextCandidate) : undefined}/>}
-      {notice && <p className="source-notice" role="status">{notice}</p>}
-      <button className="button primary full" disabled={!ready || !preview || working || !connected} onClick={() => void apply(preview)}>{working ? <Spinner/> : "Открыть для всех"}</button>
-      {room.nativeSource && <button className="text-button" disabled={working || !connected} onClick={() => void apply(null)}>Вернуться к показу страницы</button>}
+      {notice && <p className="source-notice" role="status">{localize(notice)}</p>}
+      <button className="button primary full" disabled={!ready || !preview || working || !connected} onClick={() => void apply(preview)}>{working ? <Spinner/> : t("Открыть для всех")}</button>
+      {room.nativeSource && <button className="text-button" disabled={working || !connected} onClick={() => void apply(null)}>{t("Вернуться к показу страницы")}</button>}
     </div>
   </Modal>;
 }

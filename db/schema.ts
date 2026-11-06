@@ -2,6 +2,7 @@ import { sqliteTable, text, integer, real, index, uniqueIndex, blob, primaryKey 
 export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(), login: text("login").notNull().unique(), name: text("name").notNull(),
   email: text("email").unique(), // Existing accounts can still sign in without an address.
+  recoveryHash: text("recovery_hash"),
   passwordHash: text("password_hash").notNull(), createdAt: integer("created_at").notNull(),
 });
 export const accountSessions = sqliteTable("account_sessions", {

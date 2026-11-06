@@ -1,4 +1,5 @@
 "use client";
+import { useLanguage } from "./language";
 import { useEffect, useState } from "react";
 import { api, readLocal, RequestError, type RecentRoom } from "@/lib/client";
 import type { Snapshot } from "@/lib/shared";
@@ -9,6 +10,7 @@ export type Removal = "delete" | "leave" | "forget" | "gone";
 export function RoomRemovalDialog({ room, signed, onClose, onRemoved }: {
   room: RecentRoom; signed: boolean; onClose: () => void; onRemoved: (result: Removal) => void;
 }) {
+  const { t,notice,locale } = useLanguage();
   const path = "/api/rooms/" + room.id;
   const token = signed ? undefined : readLocal(`vm-room-${room.id}`, "");
   const [mode, setMode] = useState<Exclude<Removal,"gone"> | null>(
@@ -40,18 +42,18 @@ export function RoomRemovalDialog({ room, signed, onClose, onRemoved }: {
     } finally { setBusy(false); }
   }
   const title = mode === "delete" ? "Удалить комнату для всех?" : mode ? "Убрать из моих комнат?" : "Проверяем комнату";
-  return <Modal title={title} onClose={onClose} busy={busy}>
+  return <Modal title={t(title)} onClose={onClose} busy={busy}>
     <div className="room-removal">
       <div className="removal-summary"><strong>{room.title}</strong><span>{room.videoTitle} · {room.id}</span></div>
-      {mode === "delete" ? <p>Просмотр завершится у всех участников. Приглашение перестанет работать, чат и загруженный фильм будут удалены.</p> :
-        mode === "leave" ? <p>Комната исчезнет из вашего списка. Друзья смогут смотреть дальше, а вы — вернуться по приглашению.</p> :
-        mode === "forget" ? <p>У этого браузера больше нет доступа к комнате. Можно убрать запись из списка на этом устройстве.</p> :
-        !error && <p role="status"><Spinner/> Проверяем ваши права…</p>}
-      {error && <p className="error" role="alert">{error}</p>}
-      <div className="removal-actions"><button type="button" autoFocus className="button outline" disabled={busy} onClick={onClose}>Отмена</button>
+      {mode === "delete" ? <p>{t("Просмотр завершится у всех участников. Приглашение перестанет работать, чат и загруженный фильм будут удалены.")}</p> :
+        mode === "leave" ? <p>{t("Комната исчезнет из вашего списка. Друзья смогут смотреть дальше, а вы — вернуться по приглашению.")}</p> :
+        mode === "forget" ? <p>{t("У этого браузера больше нет доступа к комнате. Можно убрать запись из списка на этом устройстве.")}</p> :
+        !error && <p role="status"><Spinner/>{t(" Проверяем ваши права…")}</p>}
+      {error && <p className="error" role="alert">{notice(error)}</p>}
+      <div className="removal-actions"><button type="button" autoFocus className="button outline" disabled={busy} onClick={onClose}>{t("Отмена")}</button>
         {mode ? <button type="button" className={"button " + (mode === "delete" ? "delete-confirm" : "primary")} disabled={busy} onClick={()=>void confirm()}>
-          {busy && <Spinner/>}{mode === "delete" ? "Удалить комнату" : "Убрать из списка"}</button> :
-          error && <button type="button" className="button primary" onClick={()=>{setError("");setAttempt(n=>n+1);}}>Повторить</button>}</div>
+          {busy && <Spinner/>}{mode === "delete" ? t("Удалить комнату") : locale === "en" ? "Remove from list" : "Убрать из списка"}</button> :
+          error && <button type="button" className="button primary" onClick={()=>{setError("");setAttempt(n=>n+1);}}>{t("Повторить")}</button>}</div>
     </div>
   </Modal>;
 }

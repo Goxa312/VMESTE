@@ -1,0 +1,86 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+import { mkdirSync } from "node:fs";
+import path from "node:path";
+
+const {chromium} = createRequire(import.meta.url)(process.env.QA_PLAYWRIGHT || "playwright");
+const browser = await chromium.launch({executablePath:process.env.QA_CHROME,headless:true,args:["--mute-audio"]});
+const base = process.env.TEST_BASE_URL || "http://127.0.0.1:8790";
+const context = await browser.newContext({viewport:{width:390,height:844},locale:"ru-RU"});
+const page = await context.newPage(), errors = [];
+page.on("pageerror",e=>errors.push(e.message));
+const login = "lang_"+randomUUID().slice(0,8), email=login+"@example.test";
+const original=randomUUID(), next=randomUUID();
+const dialog=()=>page.getByRole("dialog");
+const button=(label,scope=page)=>scope.getByRole("button",{name:label,exact:true});
+async function about(label,lang) {
+  await button(label).click();
+  const box=dialog();
+  assert.equal(await box.locator(".ranking-sources h3").count(),3);
+  assert.equal(await box.locator(".ranking-sources a").count(),4);
+  const date=await box.locator("time").innerText();
+  assert.match(date,lang==="ru" ? /20\d\d года$/ : /20\d\d$/);
+  assert.ok(!(await box.innerText()).includes(".."));
+  if(lang==="en") assert.ok(!/[А-Яа-яЁё]/.test(await box.innerText()));
+  assert.ok(await box.evaluate(el=>el.scrollWidth<=el.clientWidth));
+  if(process.env.QA_SCREEN_DIR) {
+    mkdirSync(process.env.QA_SCREEN_DIR,{recursive:true});
+    await page.screenshot({path:path.join(process.env.QA_SCREEN_DIR,"ratings-"+lang+".png")});
+  }
+  await button(lang==="ru"?"Закрыть":"Close",box).click();
+}
+try {
+  await page.goto(base);
+  await about("Об оценках","ru");
+  await button("Switch to English").click();
+  await about("About the ratings","en");
+  await page.reload();
+  await button("About the ratings").waitFor();
+  assert.equal(await page.locator("html").getAttribute("lang"),"en");
+  assert.match(await (await context.request.get(base)).text(),/<html[^>]*lang="en"/);
+  assert.ok(!(await page.locator(".header-search").evaluate(el=>getComputedStyle(el,"::after").content)).includes("Найти"));
+  await button("All 100 films").click();
+  const collection=dialog().getByRole("listitem");
+  assert.equal(await collection.count(),100); assert.match(await collection.first().innerText(),/The Shawshank Redemption/);
+  assert.ok(!/[А-Яа-яЁё]/.test(await dialog().innerText()));
+  await button("Close",dialog()).click();
+  await page.getByRole("searchbox").fill("Шоушенка"); await button("The Shawshank Redemption Film").waitFor();
+  await button("Clear search").click();
+  await button("Sign up").click();
+  await dialog().getByLabel("Email address").fill(email); await dialog().getByLabel("Username",{exact:true}).fill(login);
+  await dialog().getByLabel("Password",{exact:true}).fill(original); await dialog().getByLabel("Confirm password",{exact:true}).fill(original);
+  await button("Create account",dialog()).click();
+  const code=await dialog().getByLabel("Recovery code").inputValue();
+  await button("I’ve saved the code",dialog()).click();
+  await button("Profile: "+login).click(); await button("Log out").click();
+  await button("Log in").click(); await button("Forgot password?",dialog()).click();
+  await dialog().getByLabel("Username or email").fill(email); await dialog().getByLabel("Recovery code",{exact:true}).fill(code);
+  await dialog().getByLabel("New password",{exact:true}).fill(next); await dialog().getByLabel("Confirm password",{exact:true}).fill(next);
+  await button("Reset password",dialog()).click();
+  await dialog().getByRole("heading",{name:"Password changed"}).waitFor();
+  assert.notEqual(await dialog().getByLabel("Recovery code").inputValue(),code);
+  await button("I’ve saved the code",dialog()).click();
+  await dialog().getByLabel("Username",{exact:true}).fill(login); await dialog().getByLabel("Password",{exact:true}).fill(next);
+  await button("Log in",dialog()).last().click();
+  await button("Profile: "+login).waitFor();
+  await button("Create room").click();
+  await dialog().getByLabel("Film link").fill("https://example.org/test-film.mp4");
+  const filmName="Наш фильм / Evening", chatText="Смотрим вместе";
+  await dialog().getByLabel("Film title",{exact:true}).fill(filmName);
+  await button("Create room",dialog()).click();
+  await button("Invite a friend").waitFor();
+  await page.getByRole("textbox",{name:"Chat message"}).fill(chatText);
+  await button("Send message").click(); await page.getByText(chatText,{exact:true}).waitFor();
+  const originalRoom=page.url();
+  await button("Переключить на русский").click(); await button("Пригласить друга").waitFor();
+  assert.equal(page.url(),originalRoom); await page.getByText(chatText,{exact:true}).waitFor();
+  await button("Switch to English").click();
+  await page.getByRole("link",{name:"Together Tonight home"}).click();
+  await page.getByRole("button",{name:/^Delete room:.*Evening/}).click();
+  await button("Delete room",dialog()).click(); await page.getByText("Room deleted for everyone").waitFor();
+  await page.goto(base+"/kinogo-extension"); await page.getByRole("heading",{name:"Kinogo extension",exact:true}).waitFor();
+  await button("Переключить на русский").click(); await page.getByRole("heading",{name:"Расширение для Киного",exact:true}).waitFor();
+  assert.deepEqual(errors,[]);
+  console.log("PASS: RU/EN mobile ratings, language persistence, translated catalog and room, chat and title preserved, real signup and one-time recovery with a new login.");
+} finally {await browser.close();}

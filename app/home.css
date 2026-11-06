@@ -93,8 +93,6 @@
 @media(max-width:580px) {
   .cinema-header,.cinema-main { padding-inline:clamp(16px,4.6vw,23px); }
   .header-search { position:relative; width:auto; min-width:0; flex:1; margin-left:20px; padding-inline:9px; gap:6px; }
-  .header-search input::placeholder { color:transparent; }
-  .header-search:has(input:placeholder-shown)::after { content:"Найти фильм"; position:absolute; left:34px; font-size:14px; color:var(--muted); pointer-events:none; }
   .header-search > svg { width:17px; }
   .header-search input { font-size:14px; text-overflow:ellipsis; }
   .profile { margin-left:10px; }

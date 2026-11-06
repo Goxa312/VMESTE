@@ -2,8 +2,10 @@
 import html
 import json
 import re
+import sys
 import time
 from datetime import date
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -90,17 +92,52 @@ def anime():
         time.sleep(0.5)
     return sorted(rows.values(), key=lambda row: -row["score"])[:100]
 
+def add_display_titles(snapshot):
+    """Keep the saved scores, ranks and snapshot date when adding another display language."""
+    def films():
+        for start in range(0, len(snapshot["film"]), 50):
+            batch = snapshot["film"][start:start+50]
+            params = {"action":"wbgetentities","format":"json","ids":"|".join(r["id"] for r in batch),
+                      "props":"labels|sitelinks","languages":"en|mul","sitefilter":"enwiki"}
+            entities = json.loads(fetch("https://www.wikidata.org/w/api.php?" + urlencode(params)))["entities"]
+            for row in batch:
+                item = entities[row["id"]]
+                article = item.get("sitelinks", {}).get("enwiki", {}).get("title", "")
+                label = item.get("labels", {}).get("en", {}).get("value")
+                row["titleEn"] = label or re.sub(r" \([^()]*film\)$", "", article) or item["labels"]["mul"]["value"]
+    def tv():
+        for row in snapshot["series"]:
+            name = json.loads(fetch("https://api.tvmaze.com/shows/" + row["id"]))["name"]
+            if re.search(r"[^\x00-\x7f]", name) and not re.search("[a-zA-Z]", name):
+                titles = wiki('SELECT ?title WHERE { ?item wdt:P8600 ' + json.dumps(row["id"]) +
+                              ' . ?article schema:about ?item; schema:isPartOf <https://en.wikipedia.org/>; schema:name ?title . }')
+                if titles:
+                    name = titles[0]["title"]
+            row["titleEn"] = name
+            time.sleep(0.4)
+    def japan():
+        for row in snapshot["anime"]:
+            item = json.loads(fetch("https://shikimori.one/api/animes/" + row["id"]))
+            row["titleEn"] = next((v for v in (item.get("english") or []) if v), item["name"])
+            time.sleep(0.65)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for job in [pool.submit(fn) for fn in (films,tv,japan)]:
+            job.result()
 
 if __name__ == "__main__":
-    result = {"date": date.today().isoformat()}
-    for kind, reader in (("film", movies), ("series", series), ("anime", anime)):
-        rows = reader()
-        if len(rows) != 100 or len({row["id"] for row in rows}) != 100:
-            raise ValueError(f"Incomplete {kind} chart ({len(rows)} items)")
-        if any(not row["title"].strip() or not 0 < row["score"] <= 10 for row in rows):
-            raise ValueError(f"Invalid {kind} chart")
-        print(f"{kind}: {len(rows)} sourced entries", flush=True)
-        result[kind] = rows
+    if "--titles-only" in sys.argv:
+        result = json.loads(TARGET.read_text(encoding="utf-8"))
+    else:
+        result = {"date": date.today().isoformat()}
+        for kind, reader in (("film", movies), ("series", series), ("anime", anime)):
+            rows = reader()
+            if len(rows) != 100 or len({row["id"] for row in rows}) != 100:
+                raise ValueError(f"Incomplete {kind} chart ({len(rows)} items)")
+            if any(not row["title"].strip() or not 0 < row["score"] <= 10 for row in rows):
+                raise ValueError(f"Invalid {kind} chart")
+            print(f"{kind}: {len(rows)} sourced entries", flush=True)
+            result[kind] = rows
+    add_display_titles(result)
     temporary = TARGET.with_suffix(".tmp")
     temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temporary.replace(TARGET)

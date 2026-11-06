@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 const base = process.env.TEST_BASE_URL || "http://127.0.0.1:8790";
 async function request(path,{data,cookie,token,origin,method}={}) {
   const res=await fetch(base+path,{method:method || (data?"POST":"GET"),headers:{
-    ...(data&&{"Content-Type":"application/json"}),...(cookie&&{Cookie:cookie}),...(token&&{Authorization:"Bearer "+token}),...(origin&&{Origin:origin}),
+    Connection:"close", ...(data&&{"Content-Type":"application/json"}),...(cookie&&{Cookie:cookie}),...(token&&{Authorization:"Bearer "+token}),...(origin&&{Origin:origin}),
   },body:data?JSON.stringify(data):undefined});
   const set=res.headers.get("set-cookie") || "";
   return {status:res.status,body:await res.json(),set,cookie:set.split(";")[0]};
@@ -74,4 +74,24 @@ assert.equal((await remove(path,"delete",{cookie:a})).status,200);
 assert.equal((await request(path,{data:{name:"По приглашению"}})).status,404);
 assert.deepEqual((await request(account,{cookie:a})).body.rooms.map(r=>r.id),[previous.id]);
 assert.equal((await remove("/api/rooms/"+previous.id,"delete",{cookie:a})).status,200);
+const originalCode=first.body.recoveryCode;
+assert.match(originalCode,/^(?:[0-9A-F]{4}-){7}[0-9A-F]{4}$/);
+assert.ok(!JSON.stringify(summary).includes(originalCode));
+const issue={action:"issue-recovery-code",password};
+assert.equal((await request(account,{data:issue})).status,401);
+assert.equal((await request(account,{cookie:a,data:{...issue,password:"wrong"}})).status,403);
+const fresh=(await request(account,{cookie:a,data:issue})).body.recoveryCode;
+assert.ok(fresh && fresh!==originalCode);
+const newPassword=randomUUID();
+const reset={action:"reset-password",identifier:email,password:newPassword,passwordConfirmation:newPassword,code:fresh};
+assert.equal((await request(account,{data:reset,origin:"https://elsewhere.example"})).status,403);
+assert.equal((await request(account,{data:{...reset,passwordConfirmation:"mismatch"}})).status,400);
+assert.equal((await request(account,{data:{...reset,code:originalCode}})).status,400);
+const attempts=await Promise.all([request(account,{data:reset}),request(account,{data:reset})]);
+assert.deepEqual(attempts.map(x=>x.status).sort(),[200,400]);
+assert.ok(attempts.find(x=>x.status===200).body.recoveryCode!==fresh);
+assert.equal((await request(account,{cookie:a})).body.user,null);
+assert.equal((await request(account,{data:{action:"login",login,password}})).status,401);
+assert.equal((await request(account,{data:{action:"login",login,password:newPassword}})).status,200);
+console.log("PASS: recovery codes are private, replaceable and consumed once, including simultaneous attempts; previous password and sessions are revoked.");
 console.log("PASS: email and confirmation, unique login/email, isolated sessions, guest import, only the host deletes, guests leave and rejoin, expired sessions cannot delete.");

@@ -6,6 +6,15 @@ async function uploadRequest<T>(url: string, token: string, method: string, sign
   if (!response.ok) throw new RequestError(result.error || "Не удалось загрузить файл.", response.status);
   return result;
 }
+async function retryTransfer<T>(send:()=>Promise<T>, signal:AbortSignal): Promise<T> {
+  for(let attempt=0;;attempt++) {
+    try { return await send(); }
+    catch(error) {
+      if(signal.aborted || attempt >= 2 || (error instanceof RequestError && error.status < 500)) throw error;
+      await new Promise<void>(resolve=>setTimeout(resolve,500*(attempt+1)));
+    }
+  }
+}
 export async function uploadFilm(target: UploadTarget, file: File, title: string, signal: AbortSignal, progress: (value: number) => void) {
   const base = `/api/rooms/${target.code}/uploads`;
   const data = await uploadRequest<{ id: string; chunkSize: number }>(base, target.token, "POST", signal,
@@ -14,16 +23,11 @@ export async function uploadFilm(target: UploadTarget, file: File, title: string
   try {
     for (let offset = 0, part = 1; offset < file.size; offset += data.chunkSize, part++) {
       const piece = file.slice(offset, offset + data.chunkSize);
-      for (let attempt = 0; ; attempt++) {
-        try { await uploadRequest(url + "?part=" + part, target.token, "PUT", signal, piece); break; }
-        catch (e) {
-          if (signal.aborted || attempt >= 2 || (e instanceof RequestError && e.status < 500)) throw e;
-          await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-        }
-      }
+      await retryTransfer(()=>uploadRequest(url+"?part="+part,target.token,"PUT",signal,piece), signal);
       progress(Math.min(99, Math.round((offset + piece.size) * 100 / file.size)));
     }
-    await uploadRequest(url, target.token, "POST", signal);
+    // Finishing is idempotent: the file may already be ready if the final reply was lost.
+    await retryTransfer(()=>uploadRequest(url,target.token,"POST",signal), signal);
     progress(100);
   } catch (error) {
     void fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${target.token}` }, keepalive: true }).catch(() => {});

@@ -2,7 +2,8 @@ import { DurableObject } from "cloudflare:workers";
 import { ApiError, getRoom, member, safe } from "../lib/server";
 import { relayFormats, relayMaxPacket } from "../lib/relay-format";
 
-type SocketState = { host: boolean; code: string; session: string; ready: boolean; pending: number[] };
+type Profile = "auto" | "mp4";
+type SocketState = { host: boolean; code: string; session: string; ready: boolean; pending: number[]; profile?:Profile; multiProfile?:boolean };
 const stateOf = (ws: WebSocket) => ws.deserializeAttachment() as SocketState;
 function close(ws: WebSocket, code: number, reason: string) { try { ws.close(code, reason); } catch { /* already closed */ } }
 function send(ws: WebSocket, data: ArrayBuffer | string) {
@@ -21,19 +22,31 @@ export function routeRelay(request: Request, env: Cloudflare.Env, code: string, 
     const ns = env.ROOM_RELAY;
     if (!ns) throw new ApiError("Передача через комнату недоступна.", 503);
     // Rebuild internal headers: the caller cannot select their role or forward a room token.
+    const query = new URL(request.url).searchParams;
     return ns.get(ns.idFromName(code + ":" + session)).fetch("https://relay.internal/connect", {
       headers: { Upgrade: "websocket", "X-Member": me.id, "X-Host": room.host_id === me.id ? "1" : "0",
-        "X-Room": code, "X-Session": session, "X-Expires": String(room.expires_at) },
+        "X-Room": code, "X-Session": session, "X-Format": query.get("format") === "mp4" ? "mp4" : "auto",
+        "X-Profiles": query.get("profiles") === "2" ? "2" : "1" },
     });
   });
 }
 
 export class RoomRelay extends DurableObject<Cloudflare.Env> {
   private checkedAt = 0;
-  private bytes = 0;
-  private windowStart = 0;
+  private traffic = { auto:{bytes:0,start:0}, mp4:{bytes:0,start:0} };
 
   private active(tag?: string) { return this.ctx.getWebSockets(tag).filter(ws => ws.readyState === 1); }
+  private group(role: "host"|"guest", profile: Profile) {
+    return this.active(role).filter(ws => (stateOf(ws).profile ?? "auto") === profile);
+  }
+  private start(profile: Profile) {
+    if (!this.group("guest",profile).length) return;
+    const publishers = this.group("host",profile);
+    if (!publishers.length && profile === "mp4") {
+      for (const host of this.group("host","auto")) if (stateOf(host).multiProfile) send(host,"need-mp4");
+    }
+    for (const host of publishers) send(host,"start");
+  }
   private end() { for (const ws of this.active()) close(ws, 4004, "Broadcast ended"); }
   async alarm() { this.end(); }
   async fetch(req: Request): Promise<Response> {
@@ -48,15 +61,23 @@ export class RoomRelay extends DurableObject<Cloudflare.Env> {
     // Recheck after routing to the object: a share-stop may race the initial handshake.
     const current = await getRoom(code);
     if (current.share_id !== session) return new Response(null, { status: 409 });
-    const tag = "member:" + id;
+    const modern = req.headers.get("X-Profiles") === "2";
+    let profile: Profile = req.headers.get("X-Format") === "mp4" ? "mp4" : "auto";
+    // A host tab opened before this release still publishes to the original channel.
+    if (!host && this.group("host","auto").some(ws => !stateOf(ws).multiProfile)) profile = "auto";
+    if (host && !modern && profile === "auto") {
+      for (const viewer of this.group("guest","mp4")) viewer.serializeAttachment({...stateOf(viewer),profile:"auto"});
+    }
+    const tag = "member:" + id + (host && profile === "mp4" ? ":mp4" : "");
     for (const ws of this.active(tag)) close(ws, 4009, "Opened in another tab");
     if (!host && this.active("guest").length >= 11) return new Response(null, { status: 429 });
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server, [host ? "host" : "guest", tag]);
-    server.serializeAttachment({ host, code, session, ready: false, pending: [] } satisfies SocketState);
+    server.serializeAttachment({ host, code, session, ready: false, pending: [], profile, multiProfile:host && modern } satisfies SocketState);
     if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(current.expires_at);
     if (!host) send(server, "waiting");
-    if (this.active("guest").length) for (const ws of this.active("host")) send(ws, "start");
+    this.start(profile);
+    if (host && profile === "auto" && modern && !this.group("host","mp4").length) this.start("mp4");
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -80,19 +101,21 @@ export class RoomRelay extends DurableObject<Cloudflare.Env> {
       });
       if (!active || ws.readyState !== 1) return;
     }
-    const viewers = this.active("guest");
+    const profile = state.profile ?? "auto";
+    const viewers = this.group("guest",profile);
     if (!viewers.length) { send(ws, "idle"); return; }
     if (typeof data === "string") {
       if (data === "unsupported") { for (const viewer of viewers) send(viewer, data); return; }
-      if (!relayFormats.some(format => data === "format:" + format)) { close(ws, 1008, "Unknown format"); return; }
+      if (!relayFormats.some(format => data === "format:" + format && (profile !== "mp4" || format.startsWith("video/mp4")))) { close(ws, 1008, "Unknown format"); return; }
       for (const viewer of viewers) {
         const guest = stateOf(viewer); guest.ready = true; guest.pending = []; viewer.serializeAttachment(guest); send(viewer, data);
       }
       return;
     }
-    if (now - this.windowStart >= 10000) { this.windowStart = now; this.bytes = 0; }
-    this.bytes += data.byteLength;
-    if (!data.byteLength || data.byteLength > relayMaxPacket || this.bytes > 8 * 1024 * 1024) { close(ws, 1009, "Media limit"); return; }
+    const traffic = this.traffic[profile];
+    if (now - traffic.start >= 10000) { traffic.start = now; traffic.bytes = 0; }
+    traffic.bytes += data.byteLength;
+    if (!data.byteLength || data.byteLength > relayMaxPacket || traffic.bytes > 8 * 1024 * 1024) { close(ws, 1009, "Media limit"); return; }
     for (const viewer of viewers) {
       const guest = stateOf(viewer);
       if (!guest.ready) continue; // A mid-stream guest must first receive a fresh initialization segment.
@@ -103,9 +126,10 @@ export class RoomRelay extends DurableObject<Cloudflare.Env> {
     }
   }
   webSocketClose(ws: WebSocket) {
-    if (stateOf(ws).host) {
-      if (!this.active("host").length) for (const viewer of this.active("guest")) send(viewer, "waiting");
-    } else if (!this.active("guest").length) for (const host of this.active("host")) send(host, "idle");
+    const state = stateOf(ws), profile = state.profile ?? "auto";
+    if (state.host) {
+      if (!this.group("host",profile).length) for (const viewer of this.group("guest",profile)) send(viewer, "waiting");
+    } else if (!this.group("guest",profile).length) for (const host of this.group("host",profile)) send(host, "idle");
   }
   webSocketError(ws: WebSocket) { close(ws, 4001, "Connection lost"); }
 }

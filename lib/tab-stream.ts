@@ -8,14 +8,17 @@ type GuestRow = { offer: string | null; answered: number };
 type Callbacks = {
   onStream: (stream: MediaStream | null) => void;
   onStatus: (status: string) => void;
+  onHttpError: (status: number) => void;
   onSessionChanged: () => Promise<unknown>;
   onConnected?: () => void;
   preferRoomRelay?: boolean;
   onRelaySource: (url: string | null) => void;
+  playback: (source: MediaStream | string) => "waiting" | "playing" | "blocked";
 };
 
 const pollInterval = 1150;
-const iceTimeout = 20000;
+const iceTimeout = 14000;
+const firstFrameTimeout = 10000;
 const isConflict = (error: unknown, code: string) => error instanceof RequestError && error.code === code;
 
 function delay(ms: number, signal: AbortSignal) {
@@ -31,19 +34,32 @@ async function description(pc: RTCPeerConnection, type: "offer" | "answer", sign
   await pc.setLocalDescription(type === "offer" ? await pc.createOffer() : await pc.createAnswer());
   if (pc.iceGatheringState !== "complete") {
     await new Promise<void>(resolve => {
+      let grace: ReturnType<typeof setTimeout> | undefined, settled = false;
       const done = () => {
-        clearTimeout(timer);
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer); clearTimeout(grace);
         pc.removeEventListener("icegatheringstatechange", check);
         pc.removeEventListener("signalingstatechange", check);
+        pc.removeEventListener("icecandidate", candidate);
         signal.removeEventListener("abort", done);
         resolve();
       };
       const check = () => { if (pc.iceGatheringState === "complete" || pc.signalingState === "closed" || signal.aborted) done(); };
-      const timer = setTimeout(done, 6500);
+      // Send usable candidates promptly instead of waiting for every STUN path to time out.
+      const needsTurn = hasRelay(pc.getConfiguration());
+      const candidate = () => {
+        const sdp = pc.localDescription?.sdp || "";
+        if (!settled && !grace && (needsTurn ? / typ relay\b/.test(sdp) : /a=candidate:/.test(sdp))) {
+          grace = setTimeout(done, needsTurn || / typ srflx\b/.test(sdp) ? 300 : 1400);
+        }
+      };
+      const timer = setTimeout(done, needsTurn ? 5500 : 4000);
       pc.addEventListener("icegatheringstatechange", check);
       pc.addEventListener("signalingstatechange", check);
+      pc.addEventListener("icecandidate", candidate);
       signal.addEventListener("abort", done, { once: true });
-      check();
+      check(); candidate();
     });
   }
   if (signal.aborted || !pc.localDescription || pc.signalingState === "closed") throw new Error("Соединение закрыто.");
@@ -64,6 +80,7 @@ export function connectTab(code: string, session: string, token: string, stream:
   let attempt = crypto.randomUUID(), previousAttempt: string | undefined;
   let relayRequested = Boolean(callbacks.preferRoomRelay), servingRelay = false, relayAudience = false;
   let joined = false, joinSent = false, joinedAt = 0, lastBeat = 0, startedIce = 0, retries = 0;
+  let firstConnectionAt = 0, receivedVideo: MediaStream | null = null, firstFrame = false;
 
   function closePeer(key: string) {
     const pc = peers.get(key);
@@ -77,6 +94,7 @@ export function connectTab(code: string, session: string, token: string, stream:
     const remote = stream ? null : new MediaStream();
     const showTracks = () => {
       if (!signal.aborted && peers.get(key) === pc && pc.connectionState === "connected" && remote?.getVideoTracks().length) {
+        receivedVideo = remote;
         callbacks.onStream(remote);
       }
     };
@@ -84,10 +102,10 @@ export function connectTab(code: string, session: string, token: string, stream:
     pc.onconnectionstatechange = () => {
       if (signal.aborted || peers.get(key) !== pc) return;
       if (pc.connectionState === "connected") {
-        retries = 0;
         startedIce = 0;
+        firstConnectionAt ||= Date.now();
         showTracks();
-        callbacks.onStatus(stream ? "Идёт показ вкладки" : "В эфире");
+        callbacks.onStatus(stream ? "Идёт показ вкладки" : "Соединение установлено. Ждём первый кадр…");
         callbacks.onConnected?.();
       } else if (!stream && pc.connectionState === "disconnected") {
         startedIce ||= Date.now();
@@ -141,6 +159,7 @@ export function connectTab(code: string, session: string, token: string, stream:
 
   function renewGuest(config: RoomConfig, iceFailed = false) {
     closePeer(attempt);
+    firstConnectionAt = 0; receivedVideo = null; firstFrame = false;
     callbacks.onStream(null);
     ++retries;
     if (config.roomRelay && (iceFailed && !hasRelay(config) || retries > 2)) {
@@ -178,7 +197,10 @@ export function connectTab(code: string, session: string, token: string, stream:
     const row = await get<GuestRow>("&attempt=" + attempt);
     if (signal.aborted) return true;
     if (!row.offer) {
-      if (Date.now() - joinedAt > 15000) callbacks.onStatus("Ведущий ещё не передаёт видео. Попросите его открыть комнату и выбрать вкладку для показа.");
+      if (config.roomRelay && Date.now() - joinedAt > firstFrameTimeout) {
+        relayRequested = true;
+        callbacks.onStatus("Ждём ответ слишком долго. Подключаемся через сервер комнаты…");
+      } else if (Date.now() - joinedAt > 15000) callbacks.onStatus("Ведущий ещё не передаёт видео. Попросите его открыть комнату и выбрать вкладку для показа.");
       return true;
     }
     let pc = peers.get(attempt);
@@ -197,7 +219,16 @@ export function connectTab(code: string, session: string, token: string, stream:
       const sdp = pc.localDescription?.sdp ?? await description(pc, "answer", signal);
       await send({ action: "answer", attempt, sdp });
     } else if (pc.connectionState === "connected") {
-      callbacks.onStatus("В эфире");
+      const state = receivedVideo ? callbacks.playback(receivedVideo) : "waiting";
+      if (state === "playing") {
+        firstFrame = true; retries = 0;
+        callbacks.onStatus("В эфире");
+      } else if (!firstFrame && state !== "blocked" && !document.hidden && Date.now() - firstConnectionAt > firstFrameTimeout) {
+        if (config.roomRelay) {
+          relayRequested = true;
+          callbacks.onStatus("Видео не пришло. Подключаемся через сервер комнаты…");
+        } else return renewGuest(config,true);
+      }
     }
     return true;
   }
@@ -224,19 +255,21 @@ export function connectTab(code: string, session: string, token: string, stream:
                 audience: active => { relayAudience = active; if (active) callbacks.onConnected?.(); },
               });
             }
-            await hostStep(config, stream);
-          } else if (relayRequested) {
+            if (typeof RTCPeerConnection !== "undefined") await hostStep(config, stream);
+            else if (!config.roomRelay) { callbacks.onStatus("Этот браузер не поддерживает передачу видео в комнате."); break; }
+          } else if (relayRequested || typeof RTCPeerConnection === "undefined") {
             if (!config.roomRelay) { callbacks.onStatus("Передача через комнату недоступна на этом сервере. Нажмите «Переподключиться» для прямой связи."); break; }
             closePeer(attempt);
             callbacks.onStream(null);
             if (joinSent) { joinSent = false; void api(base, token, { action: "leave", attempt }).catch(() => {}); }
-            watchRoomRelay(code, session, signal, { status: callbacks.onStatus, source: callbacks.onRelaySource, changed: callbacks.onSessionChanged });
+            watchRoomRelay(code, session, signal, { status: callbacks.onStatus, source: callbacks.onRelaySource, changed: callbacks.onSessionChanged, playback: callbacks.playback });
             if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
             break;
           } else if (!await guestStep(config)) break;
           errors = 0;
         } catch (error) {
           if (signal.aborted) break;
+          if (error instanceof RequestError) callbacks.onHttpError(error.status);
           if (isConflict(error, "share_changed")) {
             callbacks.onStream(null);
             callbacks.onStatus("Показ сменился. Проверяем комнату…");
@@ -257,6 +290,7 @@ export function connectTab(code: string, session: string, token: string, stream:
             if (!renewGuest(config)) break;
           } else {
             errors++;
+            if (!stream && config?.roomRelay && errors >= 2) relayRequested = true;
             callbacks.onStatus("Нет ответа от сервера комнаты. Пробуем снова…");
           }
         }

@@ -34,10 +34,12 @@ function mediaFailure(code: number) {
   return "Браузер не открыл источник. Проверьте доступность ссылки и поддержку формата.";
 }
 
-export function attachRoomMedia(video: HTMLVideoElement, source: DirectSource, onError: (message: string) => void, onProgress?: (message: string) => void) {
+export function attachRoomMedia(video: HTMLVideoElement, source: DirectSource, onError: (message: string) => void, onProgress?: (message: string) => void, onLive?: (live:boolean)=>void) {
   let hls: Hls | null = null, closed = false, terminal = false, hadFrame = false;
   let nativeReason = "", pendingMediaError: ReturnType<typeof setTimeout> | undefined;
-  const canPlayNative = source.format === "hls" && !!video.canPlayType("application/vnd.apple.mpegurl");
+  const nativeSupport = source.format === "hls" ? video.canPlayType("application/vnd.apple.mpegurl") : "";
+  const canPlayNative = Boolean(nativeSupport);
+  let triedNative = false, triedHls = false;
   const frameReady = () => { hadFrame = true; nativeReason = ""; };
   function fail(message: string) {
     if (closed || terminal) return;
@@ -45,13 +47,14 @@ export function attachRoomMedia(video: HTMLVideoElement, source: DirectSource, o
     onError(message);
   }
   function startNative() {
+    triedNative = true;
     video.src = source.url;
     video.load();
   }
   function handleFailure(message: string, allowFallback: boolean) {
     if (closed || terminal) return;
     clearTimeout(pendingMediaError);
-    if (allowFallback && hls && canPlayNative && !hadFrame) {
+    if (allowFallback && hls && canPlayNative && !triedNative && !hadFrame) {
       nativeReason = message;
       const previous = hls;
       hls = null;
@@ -63,22 +66,25 @@ export function attachRoomMedia(video: HTMLVideoElement, source: DirectSource, o
   function elementError() {
     if (!video.error || closed || terminal) return;
     const message = mediaFailure(video.error.code);
-    if (!hls) { fail(nativeReason || message); return; }
+    if (!hls) {
+      if (source.format === "hls" && !triedHls && !hadFrame && Hls.isSupported()) startHls();
+      else fail(nativeReason || message);
+      return;
+    }
     // Prefer the loader's HTTP/codec diagnostic over a generic media error from the same event.
     clearTimeout(pendingMediaError);
     pendingMediaError = setTimeout(() => handleFailure(message, true), 0);
   }
   video.addEventListener("error", elementError);
   video.addEventListener("loadeddata", frameReady);
-  if (source.format === "file") {
-    startNative();
-  } else if (Hls.isSupported()) {
-    // Chromium can report native HLS as "maybe" yet fail to start the stream.
+  function startHls() {
+    triedHls = true;
     const engine = hls = new Hls({ maxBufferLength: 30 });
     onProgress?.("Загружаем плейлист HLS…");
     engine.on(Hls.Events.MANIFEST_PARSED, () => {
       if (engine === hls && !hadFrame && !terminal) onProgress?.("Плейлист прочитан. Загружаем первый кадр…");
     });
+    engine.on(Hls.Events.LEVEL_LOADED, (_, data) => { if (engine === hls && !closed) onLive?.(data.details.live); });
     engine.on(Hls.Events.ERROR, (_event, data) => {
       if (!data.fatal || engine !== hls) return;
       const failure = hlsFailure(data);
@@ -86,9 +92,14 @@ export function attachRoomMedia(video: HTMLVideoElement, source: DirectSource, o
     });
     engine.loadSource(source.url);
     engine.attachMedia(video);
-  } else if (canPlayNative) {
-    startNative();
-  } else fail("Этот браузер не поддерживает воспроизведение HLS.");
+  }
+  // Prefer native HLS when the browser is confident or only exposes Apple's managed media source.
+  // Chromium may advertise "maybe" without being able to decode the playlist natively.
+  const nativeFirst = nativeSupport === "probably" || (canPlayNative && "ManagedMediaSource" in globalThis && !globalThis.MediaSource);
+  if (source.format === "file" || nativeFirst) startNative();
+  else if (Hls.isSupported()) startHls();
+  else if (canPlayNative) startNative();
+  else fail("Этот браузер не поддерживает воспроизведение HLS.");
   return () => {
     closed = true;
     clearTimeout(pendingMediaError);

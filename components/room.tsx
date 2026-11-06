@@ -7,6 +7,7 @@ import { playbackPosition, type Snapshot, type Video } from "@/lib/shared";
 import { Logo, Spinner, Empty } from "./ui";
 import { TabPlayer } from "./tab-player";
 import { Player } from "./player";
+import { PlaybackDetails } from "./playback-details";
 import { KinogoPlayer } from "./kinogo-player";
 import { RoomSourceDialog } from "./room-source-dialog";
 import { extensionRequest } from "@/lib/kinogo-bridge";
@@ -27,6 +28,7 @@ function KinogoOption({ code, children }: { code: string; children: ReactNode })
 }
 
 export default function Room({ code }: { code: string }) {
+  const [detailsOpen,setDetailsOpen] = useState(false);
   const { t,notice,locale } = useLanguage();
   const [token, setToken] = useState(""), [initialized, setInitialized] = useState(false), [snapshot, setSnapshot] = useState<Snapshot>(), [name, setName] = useState(""), [error, setError] = useState(""), [fatal, setFatal] = useState(false), [connected, setConnected] = useState(false), [joining, setJoining] = useState(false), [busy, setBusy] = useState(false), [chatBusy, setChatBusy] = useState(false), [message, setMessage] = useState(""), [change, setChange] = useState(false), [copied, setCopied] = useState(false), [invite, setInvite] = useState("");
   const [filmOnly, setFilmOnly] = useState(false);
@@ -43,9 +45,17 @@ export default function Room({ code }: { code: string }) {
   const latest = useRef<Snapshot | undefined>(undefined), chatEnd = useRef<HTMLDivElement>(null), chatList = useRef<HTMLDivElement>(null), busyRef = useRef(false), lastSeenMessage = useRef<number | undefined>(undefined);
   const watchMain = useRef<HTMLDivElement>(null);
   const serverOffset = useRef(0);
+  const clockSamples = useRef<{at:number; rtt:number; offset:number}[]>([]);
   const apply = useCallback((data: Snapshot, start: number) => {
-    if (latest.current && data.room.revision < latest.current.room.revision) return;
-    latest.current = data; serverOffset.current = data.serverTime - (start + Date.now()) / 2;
+    const previous = latest.current;
+    if (previous && (data.room.revision < previous.room.revision ||
+        (data.room.revision === previous.room.revision && data.serverTime < previous.serverTime))) return;
+    const now = Date.now();
+    // A slow poll includes server processing time. A recent, faster round trip is a better clock sample.
+    const samples = clockSamples.current.filter(s=>s.at <= now && now-s.at < 30000).slice(-24);
+    samples.push({at:now,rtt:Math.max(0,now-start),offset:data.serverTime-(start+now)/2});
+    clockSamples.current = samples;
+    latest.current = data; serverOffset.current = samples.reduce((best,s)=>s.rtt<best.rtt?s:best).offset;
     setSnapshot(data); setOffset(serverOffset.current); setConnected(true);
   }, []);
   useEffect(() => {
@@ -143,6 +153,15 @@ export default function Room({ code }: { code: string }) {
   if (fatal) return <div className="join-page"><LanguageSwitch/><Logo/><Empty title={t("Кинозал пока недоступен")} text={notice(error)} action={t("Вернуться в библиотеку")} onClick={() => { window.location.href = "/"; }}/></div>;
   if (!token || !snapshot) return <div className="join-page"><div className="join-background"/><LanguageSwitch/><Logo/><div className="join-card"><h1>{t("Войти в комнату")}</h1><p>{t("Представьтесь, чтобы друзья узнали вас в чате.")}</p><form onSubmit={join} className="stack-form"><label>{t("Как вас зовут?")}<input autoFocus required maxLength={24} value={name} onChange={e => setName(e.target.value)} placeholder={t("Ваше имя")}/></label>{error && <p className="error" role="alert">{notice(error)}</p>}<button className="button primary full" disabled={joining}>{joining ? <Spinner/> : t("Войти в комнату")}</button></form><a className="text-button" href="/">{t("В библиотеку")}</a></div></div>;
   const room = snapshot.room;
+  async function switchToTabSharing() {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    try {
+      if (room.nativeSource) await action({action:"player-source",pageUrl:room.videoUrl,previousUrl:room.nativeSource.url,url:null,format:null});
+      else await action({action:"video",url:room.videoUrl,title:room.videoTitle,kind:room.kind,poster:room.poster,sourceMode:"page"});
+    } catch(e) { setError(e instanceof Error ? e.message : "Не удалось сменить плеер."); }
+    finally { busyRef.current=false;setBusy(false); }
+  }
   function openSourceSetup() {
     setSourceSetup({ pageUrl: room.videoUrl, previousUrl: room.nativeSource?.url ?? null });
   }
@@ -218,10 +237,12 @@ export default function Room({ code }: { code: string }) {
       <div className="room-tools">
         <span>{room.title} <span className="role-caption">· {isHost ? t("Вы ведущий") : t("Ведущий: {0}", snapshot.participants.find(p => p.id === room.hostId)?.name || t("участник"))}</span></span>
         {isHost && <div>{room.nativeSource && <button className="text-link" onClick={openSourceSetup}>{t("Источник видео")}</button>}
+          {(room.sourceMode === "direct" || room.nativeSource) && <button className="text-link" disabled={busy || !connected} onClick={()=>void switchToTabSharing()}>{t("Перейти к показу вкладки")}</button>}
           <button className="text-link" onClick={() => setChange(true)}>{t("Выбрать фильм")}</button></div>}
       </div>
-      <footer className="room-footer"><a href="/#library">{t("Фильмотека")}</a><span>{t("Комната открыта до ")}{new Date(room.expiresAt).toLocaleDateString(locale)}</span></footer>
+      <footer className="room-footer"><a href="/#library">{t("Фильмотека")}</a><button className="text-button" onClick={()=>setDetailsOpen(true)}>{t("Сведения о воспроизведении")}</button><span>{t("Комната открыта до ")}{new Date(room.expiresAt).toLocaleDateString(locale)}</span></footer>
     </main>{change && <VideoForm mode="change" uploadTarget={{ code, token, revision: room.revision }} selected={{ sourceMode: room.sourceMode, id: snapshot.room.id, title: snapshot.room.videoTitle, url: snapshot.room.videoUrl, kind: snapshot.room.kind, poster: snapshot.room.poster }} onClose={() => setChange(false)} onChangeVideo={async (v: Partial<Video>) => { await action({ action: "video", ...v }); }}/>}
+    {detailsOpen && <PlaybackDetails panel={watchMain} room={room} connected={connected} host={isHost} onClose={()=>setDetailsOpen(false)}/>}
     {isHost && sourceSetup?.pageUrl === room.videoUrl && sourceSetup.previousUrl === (room.nativeSource?.url ?? null) &&
       <RoomSourceDialog room={room} offset={offset} connected={connected} onClose={() => setSourceSetup(null)}
         onApply={async source => { await action({ action: "player-source", pageUrl: sourceSetup.pageUrl, previousUrl: sourceSetup.previousUrl,

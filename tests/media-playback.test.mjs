@@ -57,6 +57,15 @@ test('native fallback that decodes a frame clears the earlier error', t => {
   assert.match(f.errors[0], /декодировать кадры/);
 });
 
+test('a confident native HLS decoder gets the first attempt and a failed native start tries MSE only once', t => {
+  const f = fixture(t, {native:'probably'});
+  assert.equal(f.video.src,source.url);assert.deepEqual(f.calls,['load']);
+  f.elementError(4);
+  assert.deepEqual(f.calls,['load',source.url,'attach']);
+  f.fatal(ErrorTypes.NETWORK_ERROR,ErrorDetails.MANIFEST_LOAD_ERROR,403);
+  assert.match(f.errors[0],/HTTP 403/);assert.equal(f.calls.filter(v=>v==='load').length,1);
+});
+
 test('later segment failures keep the active backend and report the segment', t => {
   const f = fixture(t);
   f.video.dispatchEvent(new Event('loadeddata'));

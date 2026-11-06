@@ -49,7 +49,11 @@ export function TabPlayer({ room, token, host, hostOnline, connected, onAction, 
   const [incoming, setIncoming] = useState<{ session: string; stream: MediaStream } | null>(null);
   const [relay, setRelay] = useState<{ session: string; url: string } | null>(null);
   const [preferRelay, setPreferRelay] = useState(false);
-  const [audio, setAudio] = useState(false), [watch, setWatch] = useState(false), [retry, setRetry] = useState(0);
+  const [audio, setAudio] = useState(false), [retry, setRetry] = useState(0);
+  const [needsGesture, setNeedsGesture] = useState(false);
+  const displayed = useRef<MediaStream | string | null>(null);
+  const [lastHttp,setLastHttp] = useState<number>();
+  const blocked = useRef(false), sawBroadcast = useRef(false);
   const [status, setStatus] = useState(""), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const alive = useRef(true);
   useEffect(() => {
@@ -79,30 +83,56 @@ export function TabPlayer({ room, token, host, hostOnline, connected, onAction, 
   const local = capture?.session === room.shareId ? capture?.stream ?? null : null;
   useEffect(() => {
     const session = room.shareId;
-    if (!session || (host ? !local : !watch)) return;
+    if (!session || (host && !local)) return;
+    sawBroadcast.current = true;
+    setLastHttp(undefined);
     setStatus(host ? "Ждём зрителей…" : "Подключаемся к показу…");
     return connectTab(room.id, session, token, host ? local : null, {
       onStream: stream => setIncoming(stream ? { session, stream } : null),
       onRelaySource: url => setRelay(url ? { session, url } : null), preferRoomRelay: preferRelay,
-      onStatus: setStatus, onSessionChanged,
+      onStatus: setStatus, onHttpError:setLastHttp, onSessionChanged,
+      playback: source => {
+        const v = player.current;
+        if (!v || (typeof source === "string" ? v.getAttribute("src") !== source : v.srcObject !== source)) return "waiting";
+        if (blocked.current) return "blocked";
+        if (typeof v.requestVideoFrameCallback === "function") return displayed.current === source ? "playing" : "waiting";
+        return v.readyState >= 2 && v.videoWidth > 0 && (v.currentTime > 0 || (v.getVideoPlaybackQuality?.().totalVideoFrames ?? 0) > 0) ? "playing" : "waiting";
+      },
       onConnected: () => {
         if (!fromFile || !host || !waitingForViewer.current) return;
         waitingForViewer.current = false;
         void source.current?.play().catch(() => setError("Нажмите воспроизведение на плеере файла."));
       },
     });
-  }, [room.id, room.shareId, host, local, watch, token, retry, preferRelay, fromFile, onSessionChanged]);
+  }, [room.id, room.shareId, host, local, token, retry, preferRelay, fromFile, onSessionChanged]);
 
   const stream = host ? local : incoming?.session === room.shareId ? incoming?.stream ?? null : null;
   const relayUrl = !host && relay?.session === room.shareId ? relay?.url : undefined;
   const showing = Boolean(stream || relayUrl);
+  function allowPlayback(video: HTMLVideoElement) {
+    const expectedStream = video.srcObject, expectedUrl = video.getAttribute("src");
+    const ranges=video.buffered;
+    if(expectedUrl && ranges.length && ranges.end(ranges.length-1)-video.currentTime>8) video.currentTime=ranges.end(ranges.length-1)-1.5;
+    void video.play().catch(reason => {
+      if (video !== player.current || video.srcObject !== expectedStream || video.getAttribute("src") !== expectedUrl) return;
+      if (reason instanceof DOMException && reason.name === "NotAllowedError") { blocked.current = true; setNeedsGesture(true); }
+    });
+  }
   useEffect(() => {
+    blocked.current = false; displayed.current = null; setNeedsGesture(false);
     const video = player.current;
     if (!video) return;
-    video.srcObject = stream;
-    if (relayUrl) video.src = relayUrl; else video.removeAttribute("src");
-    if (stream || relayUrl) void video.play().catch(() => {});
-  }, [stream, relayUrl]);
+    if (relayUrl) { video.srcObject = null; video.src = relayUrl; }
+    else { video.removeAttribute("src"); video.srcObject = stream; }
+    const source = relayUrl || stream;
+    if (!source) return;
+    const frame = video.requestVideoFrameCallback?.(() => {
+      displayed.current = source;
+      if (!host) setStatus(relayUrl ? "В эфире · через комнату" : "В эфире");
+    });
+    allowPlayback(video);
+    return () => { if (frame !== undefined) video.cancelVideoFrameCallback(frame); displayed.current=null; };
+  }, [stream, relayUrl, host]);
 
   async function stop(owned: Capture) {
     if (held.current !== owned) return;
@@ -163,28 +193,29 @@ export function TabPlayer({ room, token, host, hostOnline, connected, onAction, 
 
   let guestTitle = "Ждём фильм от ведущего";
   if (room.shareId) guestTitle = hostOnline ? "Ведущий начал показ" : "Ждём связи с ведущим";
-  else if (watch) guestTitle = "Ждём следующего показа";
+  else if (sawBroadcast.current) guestTitle = "Ждём следующего показа";
 
-  return <section className="live-stage" aria-label={fromFile ? t("Показ файла") : t("Просмотр вкладки")}>
+  return <section className="live-stage" data-last-http={lastHttp} aria-label={fromFile ? t("Показ файла") : t("Просмотр вкладки")}>
     {fromFile && host && fileUrl && <video className="live-video" ref={source} src={fileUrl} controls muted playsInline preload="auto" onError={() => setError("Браузер не может декодировать этот файл. Выберите MP4 или WebM с поддерживаемым кодеком.")}/>}
-    {showing && !(fromFile && host) && <video className="live-video" ref={player} controls={!host} autoPlay muted playsInline
-      onPlaying={() => { if (relayUrl) setStatus("В эфире · через комнату"); }}
+    {showing && !(fromFile && host) && <video className="live-video" ref={player} controls={!host} autoPlay muted playsInline disableRemotePlayback={Boolean(relayUrl)}
+      onPlaying={e => { blocked.current = false; setNeedsGesture(false); if (relayUrl && typeof e.currentTarget.requestVideoFrameCallback !== "function") setStatus("В эфире · через комнату"); }}
       onProgress={e => {
         const video = e.currentTarget, b = video.buffered;
         if (relayUrl && !video.paused && b.length && b.end(b.length - 1) - video.currentTime > 8) video.currentTime = Math.max(0, b.end(b.length - 1) - 1.5);
       }} />}
     <div className={showing ? "live-tools" : "live-intro"}>
       <h2>{showing ? (fromFile ? t("Показ файла") : t("Показ вкладки")) : host ? (fromFile ? t("Показать свой файл") : t("Показать фильм из вкладки")) : t(guestTitle)}</h2>
-      {!showing && (host || !watch || !room.shareId) && <p>{host ? fromFile ? t("Фильм начнётся, когда подключится первый зритель. Оставьте комнату открытой. Если прямая связь не пройдёт, файл будет передаваться через сервер комнаты.") : t("Откройте страницу с фильмом, запустите его и выберите эту вкладку для показа. Друзья увидят фильм здесь. Если прямая связь не пройдёт, показ пойдёт через сервер комнаты.") : watch ? t("Оставьте комнату открытой. Когда ведущий начнёт новый показ, вы подключитесь автоматически.") : t("Оставьте комнату открытой. Когда ведущий выберет вкладку, вы сможете присоединиться.")}</p>}
+      {!showing && (host || !room.shareId) && <p>{host ? fromFile ? t("Фильм начнётся, когда подключится первый зритель. Оставьте комнату открытой. Если прямая связь не пройдёт, файл будет передаваться через сервер комнаты.") : t("Откройте страницу с фильмом, запустите его и выберите эту вкладку для показа. Друзья увидят фильм здесь. Если прямая связь не пройдёт, показ пойдёт через сервер комнаты.") : t("Просмотр начнётся автоматически, когда ведущий включит показ.")}</p>}
       {host && !local && fromFile && <><label className="button subtle file-picker"><FolderOpen size={17}/>{t("Выбрать файл")}<input type="file" accept="video/*,.mkv" onChange={e => { const chosen = e.target.files?.[0]; if (chosen) { setFilm(chosen); setError(""); } }}/></label><button className="button primary" disabled={!fileUrl || busy || !connected} onClick={() => void start()}>{t("Начать показ файла")}</button></>}
       {host && !local && !fromFile && <><div className="live-buttons"><a className="button subtle" href={room.videoUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={16}/>{t("Открыть сайт")}</a><button className="button primary" disabled={busy || !connected} onClick={() => void start()}>{t("Показать вкладку")}</button></div>
         <label className="sound-option"><input type="checkbox" checked={audio} onChange={e => setAudio(e.target.checked)}/>{t("Передавать звук вкладки")}</label></>}
       {host && local && capture && <button className="button subtle" onClick={() => void stop(capture)}><Square size={14}/>{t("Завершить показ")}</button>}
       {!host && room.shareId && <div className="live-buttons">
-        <button className={watch ? "text-button" : "button primary"} onClick={() => { setPreferRelay(false); setWatch(true); setIncoming(null); setRetry(r => r + 1); }}>{watch ? t("Переподключиться") : t("Смотреть трансляцию")}</button>
-        {!showing && <button className="text-button" onClick={() => { setPreferRelay(true); setWatch(true); setIncoming(null); setRetry(r => r + 1); }}>{t("Смотреть через комнату")}</button>}
+        {needsGesture && <button className="button primary" onClick={()=>{if(player.current) allowPlayback(player.current);}}>{t("Разрешить воспроизведение")}</button>}
+        <button className="text-button" onClick={() => { setPreferRelay(false); setIncoming(null); setRetry(r => r + 1); }}>{t("Переподключиться")}</button>
+        {!relayUrl && <button className="text-button" onClick={() => { setPreferRelay(true); setIncoming(null); setRetry(r => r + 1); }}>{t("Смотреть через комнату")}</button>}
       </div>}
-      {room.shareId && (local || watch) && <small role="status">{fromFile && status === "Идёт показ вкладки" ? t("Идёт показ файла") : notice(status)}</small>}
+      {room.shareId && (local || !host) && <small role="status">{fromFile && status === "Идёт показ вкладки" ? t("Идёт показ файла") : notice(status)}</small>}
       {host && !local && room.shareId && <small role="status">{t("В этой вкладке показ не идёт. Начните показ здесь, чтобы заменить текущий.")}</small>}
       {error && <p className="error" role="alert">{notice(error)}</p>}
     </div>

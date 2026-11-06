@@ -51,6 +51,7 @@ function handshake(path, origin, cookie="") {
   });
 }
 const status = async page => (await page.locator(".live-stage [role=status]").allTextContents()).join(" · ");
+let owned;
 try {
   // Pretend only this one host-owned test page is the film; no third-party video is accessed.
   await hostContext.route(filmUrl, r => r.fulfill({ contentType:"text/html", body:'<title>VmesteRelayFixture</title><main></main><script>let n=0;setInterval(()=>{document.body.style.background=n++%2?"#f98":"#345";document.querySelector("main").textContent=n},100)</script>' }));
@@ -61,20 +62,21 @@ try {
   await dialog.getByLabel("Ваше имя").fill("Ведущий теста");
   await dialog.getByRole("button",{name:"Создать комнату",exact:true}).click();
   await host.waitForURL(/\/room\/[a-f0-9]+$/); const link=host.url(), code=new URL(link).pathname.split("/").pop();
+  owned={code,token:await host.evaluate(c=>JSON.parse(localStorage.getItem("vm-room-"+c)),code)};
   const fixture=hostContext.waitForEvent("page"); await host.getByRole("link",{name:"Открыть сайт"}).click();
   await (await fixture).getByRole("main").waitFor(); await host.bringToFront();
   const start=host.waitForResponse(r=>r.url().endsWith("/actions") && r.request().postDataJSON()?.action==="share-start");
   await host.getByRole("button",{name:"Показать вкладку",exact:true}).click();
   const session=(await (await start).json()).startedShare; assert.ok(session);
-  await enter(guest,link,"Зритель теста");
   const config=guest.waitForResponse(r=>r.url().includes("ice=1"));
-  await guest.getByRole("button",{name:"Смотреть трансляцию",exact:true}).click();
+  await enter(guest,link,"Зритель теста");
   assert.equal((await (await config).json()).roomRelay,true);
   const first=await frames(guest);
   assert.ok(first.width > 0 && first.height > 0 && first.muted && await guest.evaluate(()=>window.blockedPeers)>0);
   await guest.getByText("В эфире · через комнату",{exact:true}).waitFor();
   console.log("PASS: automatic fallback after blocked ICE decoded", first.width+"×"+first.height, "muted, without another click");
 
+  await late.route("**/signal?**", r=>new URL(r.request().url()).searchParams.has("attempt") ? r.fulfill({json:{offer:null,answered:0}}) : r.continue());
   await enter(late,link,"Второй зритель теста");
   await late.getByRole("button",{name:"Смотреть через комнату",exact:true}).click();
   assert.ok((await frames(late)).muted);
@@ -113,4 +115,7 @@ try {
 } catch(e) {
   console.error("Host status:",await status(host),"Guest status:",await status(guest),"Late status:",await status(late));
   throw e;
-} finally { await browser.close(); }
+} finally {
+  if(owned) await hostContext.request.delete(base+"/api/rooms/"+owned.code,{headers:{Authorization:"Bearer "+owned.token},data:{action:"delete"}}).catch(()=>{});
+  await browser.close();
+}

@@ -14,7 +14,7 @@ function Preview({ source, onReady, onTryAnother }: { source: DirectSource; onRe
   const [failed, setFailed] = useState(false), [slow, setSlow] = useState(false);
   useEffect(() => {
     const element = video.current!;
-    let terminal = false, verified = false;
+    let terminal = false, verified = false, livePlaylist = false;
     setMessage("Загружаем первый кадр…");
     setFailed(false); setSlow(false);
     onReady(false);
@@ -27,7 +27,8 @@ function Preview({ source, onReady, onTryAnother }: { source: DirectSource; onRe
     }
     function check() {
       if (terminal || element.error || element.readyState < 2) return;
-      if (!element.videoWidth || !element.videoHeight || !Number.isFinite(element.duration) || element.duration <= 0) {
+      const live = livePlaylist || element.duration === Infinity;
+      if (!element.videoWidth || !element.videoHeight || (!live && (!Number.isFinite(element.duration) || element.duration <= 0))) {
         verified = false;
         onReady(false);
         setMessage("Ждём видеокадр и длительность фильма…");
@@ -37,7 +38,7 @@ function Preview({ source, onReady, onTryAnother }: { source: DirectSource; onRe
       clearTimeout(timer);
       setSlow(false);
       onReady(true);
-      setMessage(`Видео открылось · ${formatTime(element.duration)}. Проверьте фильм и озвучку.`);
+      setMessage(live ? "Прямой эфир открылся. Проверьте изображение и озвучку." : `Видео открылось · ${formatTime(element.duration)}. Проверьте фильм и озвучку.`);
     }
     const timer = setTimeout(() => setSlow(true), 15000);
     element.addEventListener("loadeddata", check);
@@ -46,7 +47,7 @@ function Preview({ source, onReady, onTryAnother }: { source: DirectSource; onRe
     element.addEventListener("resize", check);
     const detach = attachRoomMedia(element, source, reportFailure, text => {
       if (!terminal && !verified) setMessage(text);
-    });
+    }, value=>{livePlaylist=value;check();});
     return () => {
       clearTimeout(timer);
       element.removeEventListener("loadeddata", check);
@@ -56,7 +57,7 @@ function Preview({ source, onReady, onTryAnother }: { source: DirectSource; onRe
       detach();
     };
   }, [source, onReady]);
-  return <div className="source-preview"><video ref={video} controls playsInline preload="auto" aria-label={t("Проверка фильма")}/>
+  return <div className="source-preview"><video ref={video} controls muted playsInline preload="auto" aria-label={t("Проверка фильма")}/>
     <p role="status">{localize(message)}{slow && t(" Загрузка занимает больше обычного.")}</p>
     {(failed || slow) && onTryAnother && <button type="button" className="button subtle" onClick={onTryAnother}>{t("Проверить другой найденный поток")}</button>}
   </div>;

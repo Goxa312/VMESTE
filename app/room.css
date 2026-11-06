@@ -21,6 +21,12 @@
 .player-top { position:absolute; top:12px; left:14px; pointer-events:none; }
 .player-top > span,.buffering { display:flex; align-items:center; gap:8px; background:#1e1b1be6; color:var(--text); padding:8px 12px; font-size:14px; }
 .buffering { position:absolute; }
+.player-local-notice { color:var(--muted); font-size:13px; padding:6px 12px; }
+.playback-details { margin:18px 0; }
+.playback-details > div { display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); font-size:14px; }
+.playback-details dt { color:var(--muted); }
+.playback-details dd { margin:0; text-align:right; }
+.playback-report { display:block; width:100%; margin-top:12px; background:var(--bg); color:var(--text); padding:10px; }
 .player-controls { position:relative; display:flex; align-items:center; min-height:60px; padding:0 clamp(6px,1.2vw,20px); gap:clamp(1px,.45vw,8px); background:#181615; }
 .player-controls > .icon-button,.play-options summary { width:36px; min-height:44px; }
 .play-toggle { color:var(--text); }

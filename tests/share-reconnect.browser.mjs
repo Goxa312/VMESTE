@@ -56,7 +56,7 @@ async function startBroadcast(page) {
 async function expectFrames(previousId = null) {
   await guest.waitForFunction(previous => {
     const video = document.querySelector("video.live-video");
-    return video?.readyState >= 2 && video.videoWidth > 0 && video.currentTime > .12 && video.srcObject?.id !== previous;
+    return video?.readyState >= 2 && video.videoWidth > 0 && video.currentTime > .12 && video.srcObject && video.srcObject.id !== previous;
   }, previousId, { timeout: 55000 });
   return guest.locator("video.live-video").evaluate(v => ({
     id: v.srcObject.id, width: v.videoWidth, height: v.videoHeight, muted: v.muted,
@@ -64,7 +64,7 @@ async function expectFrames(previousId = null) {
 }
 
 const joinBlocked = latch(), releaseJoin = latch(), pollBlocked = latch(), releasePoll = latch();
-let secondHost;
+let secondHost, owned;
 try {
   // No request goes to Kinogo. Chrome captures this real, moving browser tab.
   await hostProfile.route(filmUrl, route => route.fulfill({
@@ -88,6 +88,7 @@ try {
   await guest.getByRole("button", { name: "Войти в комнату", exact: true }).click();
   await guest.getByRole("button", { name: "Пригласить друга" }).waitFor();
   const token = await host.evaluate(key => JSON.parse(localStorage.getItem("vm-room-" + key)), code);
+  owned={code,token};
   async function call(path, data) {
     return fetch(base + roomPath + path, {
       method: data ? "POST" : "GET", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
@@ -95,15 +96,12 @@ try {
     });
   }
 
-  const first = await startBroadcast(host);
-  await guest.getByRole("button", { name: "Смотреть трансляцию", exact: true }).waitFor();
-  const config = await (await call("/signal?session=" + first + "&ice=1")).json();
-  console.log("Relay advertised:", config.iceServers.some(s => [s.urls].flat().some(u => /^turns?:/.test(u))));
+  let first;
   secondHost = await hostProfile.newPage();
   await secondHost.goto(link);
   await secondHost.getByRole("button", { name: "Показать вкладку", exact: true }).waitFor();
 
-  let holdNextPoll = true, requestsAfterConflict = 0, conflictReturned = false;
+  let holdNextPoll = false, requestsAfterConflict = 0, conflictReturned = false;
   await guest.route("**/api/rooms/**", async route => {
     const req = route.request(), url = new URL(req.url());
     if (url.pathname === roomPath && req.method() === "GET" && holdNextPoll) {
@@ -111,16 +109,16 @@ try {
       pollBlocked.release();
       await releasePoll.promise;
     }
-    if (url.pathname === roomPath + "/signal" && url.searchParams.get("session") === first) {
+    if (url.pathname === roomPath + "/signal" && (!first || url.searchParams.get("session") === first)) {
       const action = req.method() === "POST" ? req.postDataJSON()?.action : "read";
       if (conflictReturned && action !== "leave") requestsAfterConflict++;
-      if (action === "join") { joinBlocked.release(); await releaseJoin.promise; }
+      if (action === "join") { holdNextPoll = true; joinBlocked.release(); await releaseJoin.promise; }
     }
     await route.continue().catch(() => {});
   });
-  await waitForLatch(pollBlocked.promise, "Missing initial room poll");
-  await guest.getByRole("button", { name: "Смотреть трансляцию", exact: true }).click();
-  await waitForLatch(joinBlocked.promise, "Missing viewer join");
+  first = await startBroadcast(host);
+  await waitForLatch(joinBlocked.promise, "Missing automatic viewer join");
+  await waitForLatch(pollBlocked.promise, "Missing room poll during join");
   const second = await startBroadcast(secondHost);
   assert.notEqual(first, second);
   const staleResponse = guest.waitForResponse(r => r.url().includes("/signal?session=" + first) && r.status() === 409);
@@ -167,5 +165,6 @@ try {
 } finally {
   releaseJoin.release();
   releasePoll.release();
+  if(owned) await hostProfile.request.delete(base+"/api/rooms/"+owned.code,{headers:{Authorization:"Bearer "+owned.token},data:{action:"delete"}}).catch(()=>{});
   await browser.close();
 }
